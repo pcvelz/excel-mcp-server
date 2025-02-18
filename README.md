@@ -36,7 +36,7 @@ For Windows:
   "mcpServers": {
     "excel": {
         "command": "cmd",
-        "args": ["/c", "npx", "--yes", "excel-mcp-server"],
+        "args": ["/c", "npx", "--yes", "@negokaz/excel-mcp-server"],
     }
 }
 ```
@@ -47,7 +47,7 @@ For other platforms:
   "mcpServers": {
     "excel": {
         "command": "npx",
-        "args": ["--yes", "excel-mcp-server"],
+        "args": ["--yes", "@negokaz/excel-mcp-server"],
     }
 }
 ```

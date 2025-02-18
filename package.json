@@ -1,6 +1,6 @@
 {
-  "name": "excel-mcp-server",
-  "version": "0.1.4",
+  "name": "@negokaz/excel-mcp-server",
+  "version": "0.1.5",
   "description": "An MCP server that reads and writes spreadsheet data to MS Excel file",
   "author": "negokaz",
   "license": "MIT",
@@ -9,7 +9,6 @@
   },
   "scripts": {
     "build": "tsc && node -e \"require('fs').chmodSync('dist/index.js', '755')\"",
-    "prepare": "npm run build",
     "watch": "tsc --watch",
     "debug": "npx @modelcontextprotocol/inspector dist/index.js"
   },
@@ -22,5 +21,8 @@
     "exceljs": "^4.4.0",
     "zod": "^3.24.2",
     "zod-to-json-schema": "^3.24.1"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }
