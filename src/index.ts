@@ -65,7 +65,7 @@ class ExcelMcpServer {
         {
           name: 'read_sheet_data',
           description: 'Read data from the Excel sheet.' +
-            'The number of columns and rows responded is limited to 50x50.' +
+            'If there is a large number of data, it reads a part of data.' +
             'To read more data, adjust range parameter and make requests again.',
           inputSchema: zodToJsonSchema(this.ReadSheetDataSchema),
         },
@@ -134,21 +134,25 @@ class ExcelMcpServer {
       throw new McpError(ErrorCode.InvalidParams, `Sheet ${sheetName} not found`);
     }
 
-    // 返却するデータを 50x50 に制限
-    const maxResponseCols = 50;
-    const maxResponseRows = 50;
+    const maxChankCellsSize = 5000;
 
-    let [startCol, startRow, endCol, endRow] = range ? this.parseRange(range) : [1, 1, maxResponseCols, maxResponseRows];
+    let [startCol, startRow, endCol, endRow] = range ? this.parseRange(range) : [1, 1, worksheet.columnCount, worksheet.rowCount];
 
-    // 表示範囲を縮小する
-    endCol = Math.min(endCol, startCol + maxResponseCols - 1, startCol + worksheet.columnCount - 1);
-    endRow = Math.min(endRow, startRow + maxResponseRows - 1, startRow + worksheet.rowCount - 1);
+    const chunkRows = Math.max(1, Math.ceil(Math.abs(maxChankCellsSize / (endCol - startCol + 1))));
+    const chunkEndRow = Math.min(endRow, startRow + chunkRows - 1);
 
-    // 表示範囲を計算
+    return {
+      content: [{
+        type: 'text',
+        mimeType: 'text/html',
+        text: this.createHtmlTable(worksheet, startCol, startRow, endCol, chunkEndRow)
+      }]
+    };
+  }
+
+  private createHtmlTable(worksheet: ExcelJS.Worksheet, startCol: number, startRow: number, endCol: number, endRow: number): string {
     const responseRange = `${this.columnNumberToLetter(startCol)}${startRow}:${this.columnNumberToLetter(endCol)}${endRow}`;
     const fullRange = `${this.columnNumberToLetter(1)}${1}:${this.columnNumberToLetter(worksheet.columnCount)}${worksheet.rowCount}`;
-
-    // HTML テーブルを構築
     let tableHtml = '<table>\n';
     tableHtml += `<tr><th>[${worksheet.name}] Current data range: ${responseRange}, Full data range: ${fullRange}</th>`;
     // 列アドレスを出力
@@ -157,26 +161,18 @@ class ExcelMcpServer {
     }
     tableHtml += '</tr>\n';
     for (let row = startRow; row <= endRow; row++) {
-      const tag = row === startRow ? 'th' : 'td';
       tableHtml += '<tr>';
       // 行アドレスを出力
-      tableHtml += `<${tag}>${row}</${tag}>`;
+      tableHtml += `<td>${row}</td>`;
       for (let col = startCol; col <= endCol; col++) {
         const cell = worksheet.getCell(row, col);
         const cellValue = cell.value ? cell.text.replaceAll('\n', '<br>') : '';
-        tableHtml += `<${tag}>${cellValue}</${tag}>`;
+        tableHtml += `<td>${cellValue}</td>`;
       }
       tableHtml += '</tr>\n';
     }
     tableHtml += '</table>';
-
-    return {
-      content: [{
-        type: 'text',
-        mimeType: 'text/html',
-        text: tableHtml
-      }]
-    };
+    return tableHtml;
   }
 
   /**
