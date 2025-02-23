@@ -16,7 +16,10 @@ A Model Context Protocol (MCP) server that reads and writes spreadsheet data to 
 
 ## Supported file formats
 
-- xlsx
+- xlsx (Excel book)
+- xlsm (Excel macro-enabled book)
+- xltx (Excel template)
+- xltm (Excel macro-enabled template)
 
 ## Installation
 
