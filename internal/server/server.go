@@ -21,7 +21,7 @@ func New() *ExcelServer {
 	s := &ExcelServer{}
 	s.server = server.NewMCPServer(
 		"excel-mcp-server",
-		"0.1.5",
+		"0.1.6",
 	)
 	// ツールの登録
 	s.server.AddTool(mcp.NewTool("read_sheet_names",
