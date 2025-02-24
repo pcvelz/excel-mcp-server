@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 
+	z "github.com/Oudwins/zog"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 	imcp "github.com/negokaz/excel-mcp-server/internal/mcp"
@@ -72,14 +73,23 @@ func (s *ExcelServer) Start() error {
 	return server.ServeStdio(s.server)
 }
 
+type ReadSheetNameArguments struct {
+	FileAbsolutePath string `zog:"fileAbsolutePath"`
+}
+
+var readSheetNameArgumentsSchema = z.Struct(z.Schema{
+	"fileAbsolutePath": z.String().Required(),
+})
+
 // List all sheet names in an Excel file
 // Response: Sheet names
 func (s *ExcelServer) handleReadSheetNames(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	filePath, ok := request.Params.Arguments["fileAbsolutePath"].(string)
-	if !ok {
-		return imcp.NewToolResultInvalidArgumentError("fileAbsolutePath must be a string"), nil
+	args := ReadSheetNameArguments{}
+	issues := readSheetNameArgumentsSchema.Parse(request.Params.Arguments, &args)
+	if len(issues) != 0 {
+		return imcp.NewToolResultZogIssueMap(issues), nil
 	}
-	workbook, err := excelize.OpenFile(filePath)
+	workbook, err := excelize.OpenFile(args.FileAbsolutePath)
 	if err != nil {
 		return nil, err
 	}
@@ -96,20 +106,34 @@ func (s *ExcelServer) handleReadSheetNames(ctx context.Context, request mcp.Call
 	}, nil
 }
 
+type ReadSheetDataArguments struct {
+	FileAbsolutePath string `zog:"fileAbsolutePath"`
+	SheetName        string `zog:"sheetName"`
+	Range            string `zog:"range"`
+}
+
+var readSheetDataArgumentsSchema = z.Struct(z.Schema{
+	"fileAbsolutePath": z.String().Required(),
+	"sheetName":        z.String().Required(),
+	"range":            z.String(),
+})
+
 // Read data from the Excel sheet
 // Response: Spreadsheet data in HTML table format
 func (s *ExcelServer) handleReadSheetData(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	filePath, ok := request.Params.Arguments["fileAbsolutePath"].(string)
-	if !ok {
-		return imcp.NewToolResultInvalidArgumentError("fileAbsolutePath must be a string"), nil
+	args := ReadSheetDataArguments{}
+	issues := readSheetDataArgumentsSchema.Parse(request.Params.Arguments, &args)
+	if len(issues) != 0 {
+		return imcp.NewToolResultZogIssueMap(issues), nil
 	}
+	filePath := args.FileAbsolutePath
 	workbook, err := excelize.OpenFile(filePath)
 	if err != nil {
 		return nil, err
 	}
 	defer workbook.Close()
 
-	sheetName, _ := request.Params.Arguments["sheetName"].(string)
+	sheetName := args.SheetName
 	if sheetName == "" {
 		sheetName = workbook.GetSheetList()[0]
 	}
@@ -117,10 +141,7 @@ func (s *ExcelServer) handleReadSheetData(ctx context.Context, request mcp.CallT
 	if index == -1 {
 		return imcp.NewToolResultInvalidArgumentError(fmt.Sprintf("sheet %s not found", sheetName)), nil
 	}
-	rangeStr, ok := request.Params.Arguments["range"].(string)
-	if !ok {
-		return imcp.NewToolResultInvalidArgumentError("range must be a string"), nil
-	}
+	rangeStr := args.Range
 
 	dimension, err := workbook.GetSheetDimension(sheetName)
 	if err != nil {
@@ -150,32 +171,44 @@ func (s *ExcelServer) handleReadSheetData(ctx context.Context, request mcp.CallT
 	return mcp.NewToolResultText(*table), nil
 }
 
+type WriteSheetDataArguments struct {
+	FileAbsolutePath string     `zog:"fileAbsolutePath"`
+	SheetName        string     `zog:"sheetName"`
+	Range            string     `zog:"range"`
+	Data             [][]string `zog:"data"`
+}
+
+var writeSheetDataArgumentsSchema = z.Struct(z.Schema{
+	"fileAbsolutePath": z.String().Required(),
+	"sheetName":        z.String().Required(),
+	"range":            z.String().Required(),
+	"data":             z.Slice(z.Slice(z.String())).Required(),
+})
+
 // Write data to the Excel sheet
 // Response: Success message
 func (s *ExcelServer) handleWriteSheetData(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	filePath, ok := request.Params.Arguments["fileAbsolutePath"].(string)
-	if !ok {
-		return imcp.NewToolResultInvalidArgumentError("fileAbsolutePath must be a string"), nil
+	args := WriteSheetDataArguments{}
+	issues := writeSheetDataArgumentsSchema.Parse(request.Params.Arguments, &args)
+	if len(issues) != 0 {
+		return imcp.NewToolResultZogIssueMap(issues), nil
 	}
-	sheetName, ok := request.Params.Arguments["sheetName"].(string)
-	if !ok {
-		return imcp.NewToolResultInvalidArgumentError("sheetName must be a string"), nil
-	}
-	rangeStr, ok := request.Params.Arguments["range"].(string)
-	if !ok {
-		return imcp.NewToolResultInvalidArgumentError("range must be a string"), nil
-	}
-	data, ok := request.Params.Arguments["data"].([]any)
+	filePath := args.FileAbsolutePath
+	sheetName := args.SheetName
+	rangeStr := args.Range
+
+  // zog が any type のスキーマをサポートしていないため、自力で実装
+	dataArg, ok := request.Params.Arguments["data"].([]any)
 	if !ok {
 		return imcp.NewToolResultInvalidArgumentError("data must be a 2D array"), nil
 	}
-	rangeData := make([][]any, len(data))
-	for i, v := range data {
+	data := make([][]any, len(dataArg))
+	for i, v := range dataArg {
 		value, ok := v.([]any)
 		if !ok {
 			return imcp.NewToolResultInvalidArgumentError("data must be a 2D array"), nil
 		}
-		rangeData[i] = value
+		data[i] = value
 	}
 
 	workbook, err := excelize.OpenFile(filePath)
@@ -197,12 +230,12 @@ func (s *ExcelServer) handleWriteSheetData(ctx context.Context, request mcp.Call
 
 	// データの整合性チェック
 	rangeRowSize := endRow - startRow + 1
-	if len(rangeData) != rangeRowSize {
+	if len(data) != rangeRowSize {
 		return imcp.NewToolResultInvalidArgumentError(fmt.Sprintf("number of rows in data (%d) does not match range size (%d)", len(data), rangeRowSize)), nil
 	}
 
 	// データの書き込み
-	for i, row := range rangeData {
+	for i, row := range data {
 		rangeColumnSize := endCol - startCol + 1
 		if len(row) != rangeColumnSize {
 			return imcp.NewToolResultInvalidArgumentError(fmt.Sprintf("number of columns in row %d (%d) does not match range size (%d)", i, len(row), rangeColumnSize)), nil
