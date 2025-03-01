@@ -17,11 +17,11 @@ type ExcelServer struct {
 	server *server.MCPServer
 }
 
-func New() *ExcelServer {
+func New(version string) *ExcelServer {
 	s := &ExcelServer{}
 	s.server = server.NewMCPServer(
 		"excel-mcp-server",
-		"0.1.7",
+		version,
 	)
 	// ツールの登録
 	s.server.AddTool(mcp.NewTool("read_sheet_names",
