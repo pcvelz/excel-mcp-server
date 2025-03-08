@@ -1,6 +1,8 @@
 package server
 
 import (
+	"runtime"
+
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/negokaz/excel-mcp-server/internal/tools"
 )
@@ -16,8 +18,11 @@ func New(version string) *ExcelServer {
 		version,
 	)
 	tools.AddReadSheetNamesTool(s.server)
-  tools.AddReadSheetDataTool(s.server)
-  tools.AddWriteSheetDataTool(s.server)
+	tools.AddReadSheetDataTool(s.server)
+	if runtime.GOOS == "windows" {
+		tools.AddReadSheetImageTool(s.server)
+	}
+	tools.AddWriteSheetDataTool(s.server)
 	return s
 }
 
