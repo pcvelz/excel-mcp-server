@@ -28,25 +28,7 @@ func ParseRange(rangeStr string) (int, int, int, int, error) {
 
 // CreateHTMLTable creates a table data in HTML format
 func CreateHTMLTable(workbook *excelize.File, sheetName string, startCol int, startRow int, endCol int, endRow int) (*string, error) {
-	var table string
-	table += "<table>\n"
-
-	// ヘッダー行（範囲情報）
-	startCell, err := excelize.CoordinatesToCellName(startCol, startRow)
-	if err != nil {
-		return nil, err
-	}
-	endCell, err := excelize.CoordinatesToCellName(endCol, endRow)
-	if err != nil {
-		return nil, err
-	}
-	responseRange := fmt.Sprintf("%s:%s", startCell, endCell)
-	fullRange, err := workbook.GetSheetDimension(sheetName)
-	if err != nil {
-		return nil, err
-	}
-	table += fmt.Sprintf("<tr><th>[%s] Current data range: %s, Full data range: %s</th>",
-		sheetName, responseRange, fullRange)
+	table := "<table>\n<tr><th></th>"
 
 	// 列アドレスの出力
 	for col := startCol; col <= endCol; col++ {

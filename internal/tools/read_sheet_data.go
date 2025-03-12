@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	z "github.com/Oudwins/zog"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -12,50 +13,56 @@ import (
 )
 
 type ReadSheetDataArguments struct {
-	FileAbsolutePath string `zog:"fileAbsolutePath"`
-	SheetName        string `zog:"sheetName"`
-	Range            string `zog:"range"`
+	FileAbsolutePath  string   `zog:"fileAbsolutePath"`
+	SheetName         string   `zog:"sheetName"`
+	Range             string   `zog:"range"`
+	KnownPagingRanges []string `zog:"knownPagingRanges"`
 }
 
 var readSheetDataArgumentsSchema = z.Struct(z.Schema{
-	"fileAbsolutePath": z.String().Required(),
-	"sheetName":        z.String().Required(),
-	"range":            z.String(),
+	"fileAbsolutePath":  z.String().Required(),
+	"sheetName":         z.String().Required(),
+	"range":             z.String(),
+	"knownPagingRanges": z.Slice(z.String()),
 })
 
 func AddReadSheetDataTool(server *server.MCPServer) {
-  server.AddTool(mcp.NewTool("read_sheet_data",
-    mcp.WithDescription("Read data from the Excel sheet."+
-      "If there is a large number of data, it reads a part of data."+
-      "To read more data, adjust range parameter and make requests again."),
-    mcp.WithString("fileAbsolutePath",
-      mcp.Required(),
-      mcp.Description("Absolute path to the Excel file"),
-    ),
-    mcp.WithString("sheetName",
-      mcp.Required(),
-      mcp.Description("Sheet name in the Excel file"),
-    ),
-    mcp.WithString("range",
-      mcp.Description("Range of cells in the Excel sheet (e.g., \"A1:C10\")"),
-    ),
-  ), handleReadSheetData)
+	server.AddTool(mcp.NewTool("read_sheet_data",
+		mcp.WithDescription("Read data from Excel sheet with pagination."+
+			"<table> tag indicates sheet data."+
+			"<span> tags indicates pagination metadata."),
+		mcp.WithString("fileAbsolutePath",
+			mcp.Required(),
+			mcp.Description("Absolute path to the Excel file"),
+		),
+		mcp.WithString("sheetName",
+			mcp.Required(),
+			mcp.Description("Sheet name in the Excel file"),
+		),
+		mcp.WithString("range",
+			mcp.Description("Range of cells to read in the Excel sheet (e.g., \"A1:C10\"). [default: first paging range]"),
+		),
+		imcp.WithArray("knownPagingRanges",
+			mcp.Description("List of already read paging ranges"),
+		),
+	), handleReadSheetDataPaging)
 }
 
-// HandleReadSheetData handles read_sheet_data tool request
-func handleReadSheetData(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func handleReadSheetDataPaging(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	args := ReadSheetDataArguments{}
 	issues := readSheetDataArgumentsSchema.Parse(request.Params.Arguments, &args)
 	if len(issues) != 0 {
 		return imcp.NewToolResultZogIssueMap(issues), nil
 	}
-	filePath := args.FileAbsolutePath
-	workbook, err := excelize.OpenFile(filePath)
+
+	// ワークブックを開く
+	workbook, err := excelize.OpenFile(args.FileAbsolutePath)
 	if err != nil {
 		return nil, err
 	}
 	defer workbook.Close()
 
+	// シート名の確認
 	sheetName := args.SheetName
 	if sheetName == "" {
 		sheetName = workbook.GetSheetList()[0]
@@ -64,32 +71,59 @@ func handleReadSheetData(ctx context.Context, request mcp.CallToolRequest) (*mcp
 	if index == -1 {
 		return imcp.NewToolResultInvalidArgumentError(fmt.Sprintf("sheet %s not found", sheetName)), nil
 	}
-	rangeStr := args.Range
 
-	dimension, err := workbook.GetSheetDimension(sheetName)
+	// ページング戦略の初期化
+	strategy, err := NewFixedSizePagingStrategy(4000, workbook, sheetName)
 	if err != nil {
 		return nil, err
 	}
-	var startCol, startRow, endCol, endRow int
-	if rangeStr == "" {
-		startCol, startRow, endCol, endRow, err = ParseRange(dimension)
-	} else {
-		startCol, startRow, endCol, endRow, err = ParseRange(rangeStr)
+	pagingService := NewPagingRangeService(strategy)
+
+	// 利用可能な範囲を取得
+	allRanges := pagingService.GetPagingRanges()
+	if len(allRanges) == 0 {
+		return imcp.NewToolResultInvalidArgumentError("no range available to read"), nil
 	}
+
+	// 現在の範囲を決定
+	currentRange := args.Range
+	if currentRange == "" && len(allRanges) > 0 {
+		currentRange = allRanges[0]
+	}
+
+	// 残りの範囲を計算
+	remainingRanges := pagingService.FilterRemainingPagingRanges(allRanges, append(args.KnownPagingRanges, currentRange))
+	// 範囲の検証
+	if err := pagingService.ValidatePagingRange(currentRange); err != nil {
+		return imcp.NewToolResultInvalidArgumentError(fmt.Sprintf("invalid range: %v", err)), nil
+	}
+
+	// 範囲を解析
+	startCol, startRow, endCol, endRow, err := ParseRange(currentRange)
 	if err != nil {
 		return nil, err
 	}
 
-	// データ量が多い場合は制限する
-	maxChunkCells := 5000
-	chunkRows := max(1, maxChunkCells/(endCol-startCol+1))
-	endRow = min(endRow, startRow+chunkRows-1)
-
-	// HTML テーブルの生成
+	// HTMLテーブルの生成
 	table, err := CreateHTMLTable(workbook, sheetName, startCol, startRow, endCol, endRow)
 	if err != nil {
 		return nil, err
 	}
 
-	return mcp.NewToolResultText(*table), nil
+	html := "<h2>Sheet Data</h2>\n"
+	html += *table + "\n"
+	html += "<h2>Metadata</h2>\n"
+	html += "<ul>\n"
+	html += fmt.Sprintf("<li>sheet name: %s</li>\n", sheetName)
+	html += fmt.Sprintf("<li>read range: %s</li>\n", currentRange)
+	html += "</ul>\n"
+	html += "<h2>Notice</h2>\n"
+	if len(remainingRanges) > 0 {
+		html += "<p>This sheet has more some ranges.</p>\n"
+		html += "<p>To read the next range, you should specify 'range' and 'knownPagingRanges' arguments as follows.</p>\n"
+		html += fmt.Sprintf("<code>{ \"range\": \"%s\", \"knownPagingRanges\": [%s] }</code>\n", remainingRanges[0], "\""+strings.Join(append(args.KnownPagingRanges, currentRange), "\", \"")+"\"")
+	} else {
+		html += "<p>All ranges have been read.</p>\n"
+	}
+	return mcp.NewToolResultText(html), nil
 }
