@@ -3,6 +3,8 @@ package tools
 import (
 	"fmt"
 
+	"github.com/devlights/goxcel"
+	"github.com/go-ole/go-ole/oleutil"
 	"github.com/xuri/excelize/v2"
 )
 
@@ -112,6 +114,167 @@ func (s *FixedSizePagingStrategy) ValidatePagingRange(rangeStr string) error {
 	return nil
 }
 
+// PrintAreaPagingStrategy は印刷範囲とページ区切りに基づいてページング範囲を計算する戦略
+type PrintAreaPagingStrategy struct {
+	worksheet *goxcel.Worksheet
+}
+
+// NewPrintAreaPagingStrategy は新しいPrintAreaPagingStrategyインスタンスを生成する
+func NewPrintAreaPagingStrategy(worksheet *goxcel.Worksheet) (*PrintAreaPagingStrategy, error) {
+	if worksheet == nil {
+		return nil, fmt.Errorf("worksheet is nil")
+	}
+	return &PrintAreaPagingStrategy{
+		worksheet: worksheet,
+	}, nil
+}
+
+// getPrintArea は印刷範囲を取得する
+func (s *PrintAreaPagingStrategy) getPrintArea() (string, error) {
+	ps, err := s.worksheet.PageSetup()
+	if err != nil {
+		return "", fmt.Errorf("failed to get PageSetup: %w", err)
+	}
+	area, err := oleutil.GetProperty(ps.ComObject(), "PrintArea")
+	if err != nil {
+		return "", fmt.Errorf("failed to get PrintArea: %w", err)
+	}
+	printAreaRange := area.Value().(string)
+
+	return printAreaRange, nil
+}
+
+// getHPageBreaksPositions はページ区切りの位置情報を取得する
+func (s *PrintAreaPagingStrategy) getHPageBreaksPositions() ([]int, error) {
+	hpb, err := s.worksheet.HPageBreaks()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get HPageBreaks: %w", err)
+	}
+	count, err := hpb.Count()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get HPageBreaks count: %w", err)
+	}
+
+	positions := make([]int, 0, int(count))
+	for i := 1; i <= int(count); i++ {
+		pageBreak, err := hpb.Item(i)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get HPageBreak item %d: %w", i, err)
+		}
+		location, err := pageBreak.Location()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get HPageBreak row %d: %w", i, err)
+		}
+		row, err := location.Row()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get HPageBreak row %d: %w", i, err)
+		}
+		positions = append(positions, int(row))
+	}
+
+	return positions, nil
+}
+
+// calculateRangesFromBreaks は印刷範囲とページ区切りから範囲のリストを生成する
+func (s *PrintAreaPagingStrategy) calculateRangesFromBreaks(printArea string, breaks []int) []string {
+	if printArea == "" {
+		return []string{}
+	}
+
+	startCol, startRow, endCol, endRow, err := ParseRange(printArea)
+	if err != nil {
+		return []string{}
+	}
+
+	ranges := make([]string, 0)
+	currentRow := startRow
+
+	// ページ区切りがない場合は印刷範囲全体を1つの範囲として扱う
+	if len(breaks) == 0 {
+		startRange, _ := excelize.CoordinatesToCellName(startCol, startRow)
+		endRange, _ := excelize.CoordinatesToCellName(endCol, endRow)
+		ranges = append(ranges, fmt.Sprintf("%s:%s", startRange, endRange))
+		return ranges
+	}
+
+	// ページ区切りで範囲を分割
+	for _, breakRow := range breaks {
+		if breakRow <= startRow || breakRow > endRow {
+			continue
+		}
+
+		startRange, _ := excelize.CoordinatesToCellName(startCol, currentRow)
+		endRange, _ := excelize.CoordinatesToCellName(endCol, breakRow-1)
+		ranges = append(ranges, fmt.Sprintf("%s:%s", startRange, endRange))
+
+		currentRow = breakRow
+	}
+
+	// 最後の範囲を追加
+	if currentRow <= endRow {
+		startRange, _ := excelize.CoordinatesToCellName(startCol, currentRow)
+		endRange, _ := excelize.CoordinatesToCellName(endCol, endRow)
+		ranges = append(ranges, fmt.Sprintf("%s:%s", startRange, endRange))
+	}
+
+	return ranges
+}
+
+// CalculatePagingRanges は印刷範囲とページ区切りに基づいてページング範囲のリストを生成する
+func (s *PrintAreaPagingStrategy) CalculatePagingRanges() []string {
+	printArea, err := s.getPrintArea()
+	if err != nil {
+		return []string{}
+	}
+
+	breaks, err := s.getHPageBreaksPositions()
+	if err != nil {
+		return []string{}
+	}
+
+	return s.calculateRangesFromBreaks(printArea, breaks)
+}
+
+// ValidatePagingRange は指定された範囲が印刷範囲内に収まっているか検証する
+func (s *PrintAreaPagingStrategy) ValidatePagingRange(rangeStr string) error {
+	printArea, err := s.getPrintArea()
+	if err != nil {
+		return fmt.Errorf("failed to get print area: %w", err)
+	}
+	if printArea == "" {
+		return fmt.Errorf("print area is not set")
+	}
+
+	// 印刷範囲を解析
+	paStartCol, paStartRow, paEndCol, paEndRow, err := ParseRange(printArea)
+	if err != nil {
+		return fmt.Errorf("invalid print area format: %w", err)
+	}
+
+	// 検証対象の範囲を解析
+	startCol, startRow, endCol, endRow, err := ParseRange(rangeStr)
+	if err != nil {
+		return fmt.Errorf("invalid range format: %w", err)
+	}
+
+	// 範囲が印刷範囲内に収まっているか確認
+	if startCol < paStartCol || startRow < paStartRow ||
+		endCol > paEndCol || endRow > paEndRow {
+		return fmt.Errorf("range %s is outside print area %s",
+			rangeStr, printArea)
+	}
+
+	// ページ区切り位置と一致するか確認
+	ranges := s.CalculatePagingRanges()
+	for _, r := range ranges {
+		if r == rangeStr {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("range %s does not match any page break boundary", rangeStr)
+}
+
 // PagingRangeService はページング処理を提供するサービス
 type PagingRangeService struct {
 	strategy PagingStrategy
@@ -145,7 +308,7 @@ func (s *PagingRangeService) FilterRemainingPagingRanges(allRanges []string, kno
 	}
 
 	// 未読の範囲を抽出
- remaining := make([]string, 0)
+	remaining := make([]string, 0)
 	for _, r := range allRanges {
 		if !knownMap[r] {
 			remaining = append(remaining, r)
