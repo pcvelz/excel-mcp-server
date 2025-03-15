@@ -11,29 +11,28 @@ import (
 	z "github.com/Oudwins/zog"
 	"github.com/devlights/goxcel"
 	"github.com/devlights/goxcel/constants"
-	"github.com/go-ole/go-ole/oleutil"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 	imcp "github.com/negokaz/excel-mcp-server/internal/mcp"
 )
 
 type ReadSheetImageArguments struct {
-	FileAbsolutePath string `zog:"fileAbsolutePath"`
-	SheetName        string `zog:"sheetName"`
-	Range            string `zog:"range"`
+	FileAbsolutePath  string   `zog:"fileAbsolutePath"`
+	SheetName         string   `zog:"sheetName"`
+	Range             string   `zog:"range"`
+	KnownPagingRanges []string `zog:"knownPagingRanges"`
 }
 
 var readSheetImageArgumentsSchema = z.Struct(z.Schema{
-	"fileAbsolutePath": z.String().Required(),
-	"sheetName":        z.String().Required(),
-	"range":            z.String(),
+	"fileAbsolutePath":  z.String().Required(),
+	"sheetName":         z.String().Required(),
+	"range":             z.String(),
+	"knownPagingRanges": z.Slice(z.String()),
 })
 
 func AddReadSheetImageTool(server *server.MCPServer) {
 	server.AddTool(mcp.NewTool("read_sheet_image",
-		mcp.WithDescription("[Windows only] Read data as an image from the Excel sheet."+
-			"If there is a large number of data, it reads a part of data."+
-			"To read more data, adjust range parameter and make requests again."),
+		mcp.WithDescription("[Windows only] Read data as an image from the Excel sheet with pagination."),
 		mcp.WithString("fileAbsolutePath",
 			mcp.Required(),
 			mcp.Description("Absolute path to the Excel file"),
@@ -43,8 +42,10 @@ func AddReadSheetImageTool(server *server.MCPServer) {
 			mcp.Description("Sheet name in the Excel file"),
 		),
 		mcp.WithString("range",
-			mcp.Description("Range of cells in the Excel sheet (e.g., \"A1:C10\")."+
-				"If not specified, it try to read the entire sheet."),
+			mcp.Description("Range of cells to read in the Excel sheet (e.g., \"A1:C10\"). [default: first paging range]"),
+		),
+		imcp.WithArray("knownPagingRanges",
+			mcp.Description("List of already read paging ranges"),
 		),
 	), handleReadSheetImage)
 }
@@ -90,15 +91,28 @@ func handleReadSheetImage(ctx context.Context, request mcp.CallToolRequest) (*mc
 		return nil, fmt.Errorf("failed to get sheet name: %w", err)
 	}
 
-	// range を処理
-	xlUsedRange, err := sheet.UsedRange()
+	pagingStrategy, err := NewGoxcelPagingStrategy(5000, sheet)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get used range: %w", err)
+		return nil, err
 	}
+	pagingService := NewPagingRangeService(pagingStrategy)
+
+	allRanges := pagingService.GetPagingRanges()
+	if len(allRanges) == 0 {
+		return imcp.NewToolResultInvalidArgumentError("no range available to read"), nil
+	}
+
 	var xlRange *goxcel.XlRange
 	if args.Range == "" {
-		// range が指定されていない場合は UsedRange を使用
-		xlRange = xlUsedRange
+		// range が指定されていない場合は最初の Range を使用
+		startCol, startRow, endCol, endRow, err := ParseRange(allRanges[0])
+		if err != nil {
+			return nil, err
+		}
+		xlRange, err = sheet.Range(startRow, startCol, endRow, endCol)
+		if err != nil {
+			return nil, err
+		}
 	} else {
 		// range が指定されている場合は指定された範囲を使用
 		startCol, startRow, endCol, endRow, err := ParseRange(args.Range)
@@ -111,14 +125,12 @@ func handleReadSheetImage(ctx context.Context, request mcp.CallToolRequest) (*mc
 			return nil, fmt.Errorf("failed to create range: %w", err)
 		}
 	}
-	usedRangeAddress, err := fetchRangeAddress(xlUsedRange)
+	currentRange, err := FetchRangeAddress(xlRange)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get address: %w", err)
 	}
-	rangeAddress, err := fetchRangeAddress(xlRange)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get address: %w", err)
-	}
+	remainingRanges := pagingService.FilterRemainingPagingRanges(allRanges, append(args.KnownPagingRanges, currentRange))
+
 	// 画像の取得用バッファの準備
 	buf := new(bytes.Buffer)
 	bufWriter := bufio.NewWriter(buf)
@@ -133,18 +145,22 @@ func handleReadSheetImage(ctx context.Context, request mcp.CallToolRequest) (*mc
 	// base64 エンコード
 	base64Image := base64.StdEncoding.EncodeToString(buf.Bytes())
 
+	text := "# Metadata\n"
+	text += fmt.Sprintf("- sheet name: %s\n", sheetName)
+	text += fmt.Sprintf("- read range: %s\n", currentRange)
+	text += "# Notice\n"
+	if len(remainingRanges) > 0 {
+		text += "This sheet has more some ranges.\n"
+		text += "To read the next range, you should specify 'range' and 'knownPagingRanges' arguments as follows.\n"
+		text += fmt.Sprintf("`{ \"range\": \"%s\", \"knownPagingRanges\": [%s] }`", remainingRanges[0], "\""+strings.Join(append(args.KnownPagingRanges, currentRange), "\", \"")+"\"")
+	} else {
+		text += "All ranges have been read.\n"
+	}
+
 	// 結果を返却
 	return mcp.NewToolResultImage(
-		fmt.Sprintf("[%s] Current data range: %s, Full data range: %s", sheetName, rangeAddress, usedRangeAddress),
+		text,
 		base64Image,
 		"image/png",
 	), nil
-}
-
-func fetchRangeAddress(XlRange *goxcel.XlRange) (string, error) {
-	address, err := oleutil.GetProperty(XlRange.ComObject(), "Address")
-	if err != nil {
-		return "", err
-	}
-	return strings.ReplaceAll(address.ToString(), "$", ""), nil
 }

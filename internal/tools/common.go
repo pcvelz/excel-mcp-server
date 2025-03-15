@@ -5,6 +5,8 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/devlights/goxcel"
+	"github.com/go-ole/go-ole/oleutil"
 	"github.com/xuri/excelize/v2"
 )
 
@@ -53,4 +55,12 @@ func CreateHTMLTable(workbook *excelize.File, sheetName string, startCol int, st
 
 	table += "</table>"
 	return &table, nil
+}
+
+func FetchRangeAddress(r *goxcel.XlRange) (string, error) {
+	address, err := oleutil.GetProperty(r.ComObject(), "Address")
+	if err != nil {
+		return "", err
+	}
+	return strings.ReplaceAll(address.ToString(), "$", ""), nil
 }
