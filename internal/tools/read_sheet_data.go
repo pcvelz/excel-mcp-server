@@ -28,9 +28,7 @@ var readSheetDataArgumentsSchema = z.Struct(z.Schema{
 
 func AddReadSheetDataTool(server *server.MCPServer) {
 	server.AddTool(mcp.NewTool("read_sheet_data",
-		mcp.WithDescription("Read data from Excel sheet with pagination."+
-			"<table> tag indicates sheet data."+
-			"<span> tags indicates pagination metadata."),
+		mcp.WithDescription("Read data from Excel sheet with pagination."),
 		mcp.WithString("fileAbsolutePath",
 			mcp.Required(),
 			mcp.Description("Absolute path to the Excel file"),
