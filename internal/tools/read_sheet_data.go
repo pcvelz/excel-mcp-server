@@ -47,12 +47,14 @@ func AddReadSheetDataTool(server *server.MCPServer) {
 }
 
 func handleReadSheetDataPaging(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	args := ReadSheetDataArguments{}
-	issues := readSheetDataArgumentsSchema.Parse(request.Params.Arguments, &args)
-	if len(issues) != 0 {
+	config, issues := LoadConfig()
+	if issues != nil {
 		return imcp.NewToolResultZogIssueMap(issues), nil
 	}
-
+	args := ReadSheetDataArguments{}
+	if issues := readSheetDataArgumentsSchema.Parse(request.Params.Arguments, &args); len(issues) != 0 {
+		return imcp.NewToolResultZogIssueMap(issues), nil
+	}
 	// ワークブックを開く
 	workbook, err := excelize.OpenFile(args.FileAbsolutePath)
 	if err != nil {
@@ -71,7 +73,7 @@ func handleReadSheetDataPaging(ctx context.Context, request mcp.CallToolRequest)
 	}
 
 	// ページング戦略の初期化
-	strategy, err := NewFixedSizePagingStrategy(4000, workbook, sheetName)
+	strategy, err := NewFixedSizePagingStrategy(config.EXCEL_MCP_PAGING_CELLS_LIMIT, workbook, sheetName)
 	if err != nil {
 		return nil, err
 	}

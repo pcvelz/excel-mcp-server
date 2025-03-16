@@ -37,6 +37,9 @@ For Windows:
     "excel": {
         "command": "cmd",
         "args": ["/c", "npx", "--yes", "@negokaz/excel-mcp-server"],
+        "env": {
+            "EXCEL_MCP_PAGING_CELLS_LIMIT": "4000"
+        }
     }
 }
 ```
@@ -48,6 +51,9 @@ For other platforms:
     "excel": {
         "command": "npx",
         "args": ["--yes", "@negokaz/excel-mcp-server"],
+        "env": {
+            "EXCEL_MCP_PAGING_CELLS_LIMIT": "4000"
+        }
     }
 }
 ```
@@ -86,7 +92,7 @@ Read data from Excel sheet with pagination.
 
 ### `read_sheet_image`
 
-[Windows only] Read data as an image from the Excel sheet with pagination.
+**[Windows only]** Read data as an image from the Excel sheet with pagination.
 
 **Arguments:**
 - `fileAbsolutePath`
@@ -111,6 +117,15 @@ Write data to the Excel sheet.
     - Range of cells to read in the Excel sheet (e.g., "A1:C10").
 - `data`
     - Data to write to the Excel sheet
+
+<h2 id="tools">Configuration</h2>
+
+You can change the MCP Server behaviors by the following environment variables:
+
+### `EXCEL_MCP_PAGING_CELLS_LIMIT`
+
+The maximum number of cells to read in a single paging operation.  
+[default: 4000]
 
 ## License
 
