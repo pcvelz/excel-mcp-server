@@ -9,6 +9,9 @@ A Model Context Protocol (MCP) server that reads and writes spreadsheet data to 
 
 - Read text values from MS Excel file
 - Write text values to MS Excel file
+- Capture screen image from MS Excel file (Windows only)
+
+For more details, see the [tools](#tools) section.
 
 ## Requirements
 
@@ -56,6 +59,58 @@ To install Excel MCP Server for Claude Desktop automatically via [Smithery](http
 ```bash
 npx -y @smithery/cli install @negokaz/excel-mcp-server --client claude
 ```
+
+<h2 id="tools">Tools</h2>
+
+### `read_sheet_names`
+
+List all sheet names in an Excel file.
+
+**Arguments:**
+- `fileAbsolutePath`
+    - Absolute path to the Excel file
+
+### `read_sheet_data`
+
+Read data from Excel sheet with pagination.
+
+**Arguments:**
+- `fileAbsolutePath`
+    - Absolute path to the Excel file
+- `sheetName`
+    - Sheet name in the Excel file
+- `range`
+    - Range of cells to read in the Excel sheet (e.g., "A1:C10"). [default: first paging range]
+- `knownPagingRanges`
+    - List of already read paging ranges
+
+### `read_sheet_image`
+
+[Windows only] Read data as an image from the Excel sheet with pagination.
+
+**Arguments:**
+- `fileAbsolutePath`
+    - Absolute path to the Excel file
+- `sheetName`
+    - Sheet name in the Excel file
+- `range`
+    - Range of cells to read in the Excel sheet (e.g., "A1:C10"). [default: first paging range]
+- `knownPagingRanges`
+    - List of already read paging ranges
+
+### `write_sheet_data`
+
+Write data to the Excel sheet.
+
+**Arguments:**
+- `fileAbsolutePath`
+    - Absolute path to the Excel file
+- `sheetName`
+    - Sheet name in the Excel file
+- `range`
+    - Range of cells to read in the Excel sheet (e.g., "A1:C10").
+- `data`
+    - Data to write to the Excel sheet
 
 ## License
 
