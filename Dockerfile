@@ -14,8 +14,10 @@ FROM node:20-slim AS npm-build
 # Set the working directory
 WORKDIR /app
 
+COPY --from=go-build  /app /app
+
 # Install dependencies and build the project
-RUN npm ci && tsc
+RUN npm install -g typescript && npm ci && tsc
 
 # Use a smaller Node.js base image for the final stage
 FROM node:20-slim AS release
