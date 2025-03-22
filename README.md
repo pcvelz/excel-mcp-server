@@ -33,12 +33,13 @@ excel-mcp-server is automatically installed by adding the following configuratio
 For Windows:
 ```json
 {
-  "mcpServers": {
-    "excel": {
-        "command": "cmd",
-        "args": ["/c", "npx", "--yes", "@negokaz/excel-mcp-server"],
-        "env": {
-            "EXCEL_MCP_PAGING_CELLS_LIMIT": "4000"
+    "mcpServers": {
+        "excel": {
+            "command": "cmd",
+            "args": ["/c", "npx", "--yes", "@negokaz/excel-mcp-server"],
+            "env": {
+                "EXCEL_MCP_PAGING_CELLS_LIMIT": "4000"
+            }
         }
     }
 }
@@ -47,12 +48,13 @@ For Windows:
 For other platforms:
 ```json
 {
-  "mcpServers": {
-    "excel": {
-        "command": "npx",
-        "args": ["--yes", "@negokaz/excel-mcp-server"],
-        "env": {
-            "EXCEL_MCP_PAGING_CELLS_LIMIT": "4000"
+    "mcpServers": {
+        "excel": {
+            "command": "npx",
+            "args": ["--yes", "@negokaz/excel-mcp-server"],
+            "env": {
+                "EXCEL_MCP_PAGING_CELLS_LIMIT": "4000"
+            }
         }
     }
 }
