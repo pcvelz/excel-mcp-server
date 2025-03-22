@@ -43,7 +43,7 @@ func CreateHTMLTable(workbook *excelize.File, sheetName string, startCol int, st
 	for row := startRow; row <= endRow; row++ {
 		table += "<tr>"
 		// 行アドレスを出力
-		table += fmt.Sprintf("<td>%d</td>", row)
+		table += fmt.Sprintf("<th>%d</th>", row)
 
 		for col := startCol; col <= endCol; col++ {
 			axis, _ := excelize.CoordinatesToCellName(col, row)
