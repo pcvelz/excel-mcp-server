@@ -147,8 +147,8 @@ Write formulas to the Excel sheet.
     - Sheet name in the Excel file
 - `range`
     - Range of cells to read in the Excel sheet (e.g., "A1:C10").
-- `data`
-    - Formulas to write to the Excel sheet
+- `formulas`
+    - Formulas to write to the Excel sheet (e.g., "=A1+B1")
 
 <h2 id="tools">Configuration</h2>
 

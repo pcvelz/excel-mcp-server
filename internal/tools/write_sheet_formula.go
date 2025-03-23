@@ -15,14 +15,14 @@ type WriteSheetFormulaArguments struct {
 	FileAbsolutePath string     `zog:"fileAbsolutePath"`
 	SheetName        string     `zog:"sheetName"`
 	Range            string     `zog:"range"`
-	Data             [][]string `zog:"data"`
+	Formulas         [][]string `zog:"formulas"`
 }
 
 var writeSheetFormulaArgumentsSchema = z.Struct(z.Schema{
 	"fileAbsolutePath": z.String().Required(),
 	"sheetName":        z.String().Required(),
 	"range":            z.String().Required(),
-	"data":             z.Slice(z.Slice(z.String())).Required(),
+	"formulas":         z.Slice(z.Slice(z.String().HasPrefix("="))).Required(),
 })
 
 func AddWriteSheetFormulaTool(server *server.MCPServer) {
@@ -40,9 +40,9 @@ func AddWriteSheetFormulaTool(server *server.MCPServer) {
 			mcp.Required(),
 			mcp.Description("Range of cells in the Excel sheet (e.g., \"A1:C10\")"),
 		),
-		imcp.WithArray("data",
+		imcp.WithArray("formulas",
 			mcp.Required(),
-			mcp.Description("Formulas to write to the Excel sheet"),
+			mcp.Description("Formulas to write to the Excel sheet (e.g., \"=A1+B1\")"),
 		),
 	), handleWriteSheetFormula)
 }
@@ -53,25 +53,10 @@ func handleWriteSheetFormula(ctx context.Context, request mcp.CallToolRequest) (
 	if len(issues) != 0 {
 		return imcp.NewToolResultZogIssueMap(issues), nil
 	}
-
-	// zog が any type のスキーマをサポートしていないため、自力で実装
-	dataArg, ok := request.Params.Arguments["data"].([]any)
-	if !ok {
-		return imcp.NewToolResultInvalidArgumentError("data must be a 2D array"), nil
-	}
-	data := make([][]any, len(dataArg))
-	for i, v := range dataArg {
-		value, ok := v.([]any)
-		if !ok {
-			return imcp.NewToolResultInvalidArgumentError("data must be a 2D array"), nil
-		}
-		data[i] = value
-	}
-
-	return writeSheetFormula(args.FileAbsolutePath, args.SheetName, args.Range, data)
+	return writeSheetFormula(args.FileAbsolutePath, args.SheetName, args.Range, args.Formulas)
 }
 
-func writeSheetFormula(fileAbsolutePath string, sheetName string, rangeStr string, data [][]any) (*mcp.CallToolResult, error) {
+func writeSheetFormula(fileAbsolutePath string, sheetName string, rangeStr string, formulas [][]string) (*mcp.CallToolResult, error) {
 	workbook, err := excelize.OpenFile(fileAbsolutePath)
 	if err != nil {
 		return nil, err
@@ -91,12 +76,12 @@ func writeSheetFormula(fileAbsolutePath string, sheetName string, rangeStr strin
 
 	// データの整合性チェック
 	rangeRowSize := endRow - startRow + 1
-	if len(data) != rangeRowSize {
-		return imcp.NewToolResultInvalidArgumentError(fmt.Sprintf("number of rows in data (%d) does not match range size (%d)", len(data), rangeRowSize)), nil
+	if len(formulas) != rangeRowSize {
+		return imcp.NewToolResultInvalidArgumentError(fmt.Sprintf("number of rows in data (%d) does not match range size (%d)", len(formulas), rangeRowSize)), nil
 	}
 
 	// データの書き込み
-	for i, row := range data {
+	for i, row := range formulas {
 		rangeColumnSize := endCol - startCol + 1
 		if len(row) != rangeColumnSize {
 			return imcp.NewToolResultInvalidArgumentError(fmt.Sprintf("number of columns in row %d (%d) does not match range size (%d)", i, len(row), rangeColumnSize)), nil
@@ -106,7 +91,7 @@ func writeSheetFormula(fileAbsolutePath string, sheetName string, rangeStr strin
 			if err != nil {
 				return nil, err
 			}
-			err = workbook.SetCellFormula(sheetName, cell, fmt.Sprintf("%v", formula))
+			err = workbook.SetCellFormula(sheetName, cell, formula)
 			if err != nil {
 				return nil, err
 			}
