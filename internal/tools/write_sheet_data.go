@@ -117,5 +117,20 @@ func writeSheetData(fileAbsolutePath string, sheetName string, rangeStr string, 
 		return nil, err
 	}
 
-	return mcp.NewToolResultText("File saved successfully"), nil
+	// HTMLテーブルの生成
+	table, err := CreateHTMLTable(workbook, sheetName, startCol, startRow, endCol, endRow)
+	if err != nil {
+		return nil, err
+	}
+	html := "<h2>Sheet Data</h2>\n"
+	html += *table + "\n"
+	html += "<h2>Metadata</h2>\n"
+	html += "<ul>\n"
+	html += fmt.Sprintf("<li>sheet name: %s</li>\n", sheetName)
+	html += fmt.Sprintf("<li>read range: %s</li>\n", rangeStr)
+	html += "</ul>\n"
+	html += "<h2>Notice</h2>\n"
+	html += "<p>Values wrote successfully.</p>\n"
+
+	return mcp.NewToolResultText(html), nil
 }
