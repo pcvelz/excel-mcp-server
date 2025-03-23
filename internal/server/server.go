@@ -19,6 +19,7 @@ func New(version string) *ExcelServer {
 	)
 	tools.AddReadSheetNamesTool(s.server)
 	tools.AddReadSheetDataTool(s.server)
+	tools.AddReadSheetFormulaTool(s.server)
 	if runtime.GOOS == "windows" {
 		tools.AddReadSheetImageTool(s.server)
 	}

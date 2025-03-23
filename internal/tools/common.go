@@ -34,6 +34,12 @@ func CreateHTMLTableOfValues(workbook *excelize.File, sheetName string, startCol
 	})
 }
 
+func CreateHTMLTableOfFormula(workbook *excelize.File, sheetName string, startCol int, startRow int, endCol int, endRow int) (*string, error) {
+	return createHTMLTable(workbook, sheetName, startCol, startRow, endCol, endRow, func(sheetName string, cellRange string) (string, error) {
+		return workbook.GetCellFormula(sheetName, cellRange)
+	})
+}
+
 // CreateHTMLTable creates a table data in HTML format
 func createHTMLTable(workbook *excelize.File, sheetName string, startCol int, startRow int, endCol int, endRow int, extractor func(sheetName string, cellRange string) (string, error)) (*string, error) {
 	table := "<table>\n<tr><th></th>"
