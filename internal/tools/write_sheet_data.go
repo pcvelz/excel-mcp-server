@@ -26,37 +26,33 @@ var writeSheetDataArgumentsSchema = z.Struct(z.Schema{
 })
 
 func AddWriteSheetDataTool(server *server.MCPServer) {
-  server.AddTool(mcp.NewTool("write_sheet_data",
-    mcp.WithDescription("Write data to the Excel sheet"),
-    mcp.WithString("fileAbsolutePath",
-      mcp.Required(),
-      mcp.Description("Absolute path to the Excel file"),
-    ),
-    mcp.WithString("sheetName",
-      mcp.Required(),
-      mcp.Description("Sheet name in the Excel file"),
-    ),
-    mcp.WithString("range",
-      mcp.Required(),
-      mcp.Description("Range of cells in the Excel sheet (e.g., \"A1:C10\")"),
-    ),
-    imcp.WithArray("data",
-      mcp.Required(),
-      mcp.Description("Data to write to the Excel sheet"),
-    ),
-), handleWriteSheetData)
+	server.AddTool(mcp.NewTool("write_sheet_data",
+		mcp.WithDescription("Write data to the Excel sheet"),
+		mcp.WithString("fileAbsolutePath",
+			mcp.Required(),
+			mcp.Description("Absolute path to the Excel file"),
+		),
+		mcp.WithString("sheetName",
+			mcp.Required(),
+			mcp.Description("Sheet name in the Excel file"),
+		),
+		mcp.WithString("range",
+			mcp.Required(),
+			mcp.Description("Range of cells in the Excel sheet (e.g., \"A1:C10\")"),
+		),
+		imcp.WithArray("data",
+			mcp.Required(),
+			mcp.Description("Data to write to the Excel sheet"),
+		),
+	), handleWriteSheetData)
 }
 
-// HandleWriteSheetData handles write_sheet_data tool request
 func handleWriteSheetData(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	args := WriteSheetDataArguments{}
 	issues := writeSheetDataArgumentsSchema.Parse(request.Params.Arguments, &args)
 	if len(issues) != 0 {
 		return imcp.NewToolResultZogIssueMap(issues), nil
 	}
-	filePath := args.FileAbsolutePath
-	sheetName := args.SheetName
-	rangeStr := args.Range
 
 	// zog が any type のスキーマをサポートしていないため、自力で実装
 	dataArg, ok := request.Params.Arguments["data"].([]any)
@@ -72,7 +68,11 @@ func handleWriteSheetData(ctx context.Context, request mcp.CallToolRequest) (*mc
 		data[i] = value
 	}
 
-	workbook, err := excelize.OpenFile(filePath)
+	return writeSheetData(args.FileAbsolutePath, args.SheetName, args.Range, data)
+}
+
+func writeSheetData(fileAbsolutePath string, sheetName string, rangeStr string, data [][]any) (*mcp.CallToolResult, error) {
+	workbook, err := excelize.OpenFile(fileAbsolutePath)
 	if err != nil {
 		return nil, err
 	}

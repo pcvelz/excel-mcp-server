@@ -47,23 +47,27 @@ func AddReadSheetDataTool(server *server.MCPServer) {
 }
 
 func handleReadSheetDataPaging(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	config, issues := LoadConfig()
-	if issues != nil {
-		return imcp.NewToolResultZogIssueMap(issues), nil
-	}
 	args := ReadSheetDataArguments{}
 	if issues := readSheetDataArgumentsSchema.Parse(request.Params.Arguments, &args); len(issues) != 0 {
 		return imcp.NewToolResultZogIssueMap(issues), nil
 	}
+	return readSheetData(args.FileAbsolutePath, args.SheetName, args.Range, args.KnownPagingRanges)
+}
+
+func readSheetData(fileAbsolutePath string, sheetName string, valueRange string, knownPagingRanges []string) (*mcp.CallToolResult, error) {
+	config, issues := LoadConfig()
+	if issues != nil {
+		return imcp.NewToolResultZogIssueMap(issues), nil
+	}
+
 	// ワークブックを開く
-	workbook, err := excelize.OpenFile(args.FileAbsolutePath)
+	workbook, err := excelize.OpenFile(fileAbsolutePath)
 	if err != nil {
 		return nil, err
 	}
 	defer workbook.Close()
 
 	// シート名の確認
-	sheetName := args.SheetName
 	if sheetName == "" {
 		sheetName = workbook.GetSheetList()[0]
 	}
@@ -86,13 +90,14 @@ func handleReadSheetDataPaging(ctx context.Context, request mcp.CallToolRequest)
 	}
 
 	// 現在の範囲を決定
-	currentRange := args.Range
+	currentRange := valueRange
 	if currentRange == "" && len(allRanges) > 0 {
 		currentRange = allRanges[0]
 	}
 
 	// 残りの範囲を計算
-	remainingRanges := pagingService.FilterRemainingPagingRanges(allRanges, append(args.KnownPagingRanges, currentRange))
+	remainingRanges := pagingService.FilterRemainingPagingRanges(allRanges, append(knownPagingRanges, currentRange))
+
 	// 範囲の検証
 	if err := pagingService.ValidatePagingRange(currentRange); err != nil {
 		return imcp.NewToolResultInvalidArgumentError(fmt.Sprintf("invalid range: %v", err)), nil
@@ -121,7 +126,7 @@ func handleReadSheetDataPaging(ctx context.Context, request mcp.CallToolRequest)
 	if len(remainingRanges) > 0 {
 		html += "<p>This sheet has more some ranges.</p>\n"
 		html += "<p>To read the next range, you should specify 'range' and 'knownPagingRanges' arguments as follows.</p>\n"
-		html += fmt.Sprintf("<code>{ \"range\": \"%s\", \"knownPagingRanges\": [%s] }</code>\n", remainingRanges[0], "\""+strings.Join(append(args.KnownPagingRanges, currentRange), "\", \"")+"\"")
+		html += fmt.Sprintf("<code>{ \"range\": \"%s\", \"knownPagingRanges\": [%s] }</code>\n", remainingRanges[0], "\""+strings.Join(append(knownPagingRanges, currentRange), "\", \"")+"\"")
 	} else {
 		html += "<p>All ranges have been read.</p>\n"
 	}

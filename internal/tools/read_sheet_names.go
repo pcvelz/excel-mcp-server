@@ -19,23 +19,26 @@ var readSheetNameArgumentsSchema = z.Struct(z.Schema{
 })
 
 func AddReadSheetNamesTool(server *server.MCPServer) {
-  server.AddTool(mcp.NewTool("read_sheet_names",
-    mcp.WithDescription("List all sheet names in an Excel file"),
-    mcp.WithString("fileAbsolutePath",
-      mcp.Required(),
-      mcp.Description("Absolute path to the Excel file"),
-    ),
-  ), handleReadSheetNames)
+	server.AddTool(mcp.NewTool("read_sheet_names",
+		mcp.WithDescription("List all sheet names in an Excel file"),
+		mcp.WithString("fileAbsolutePath",
+			mcp.Required(),
+			mcp.Description("Absolute path to the Excel file"),
+		),
+	), handleReadSheetNames)
 }
 
-// HandleReadSheetNames handles read_sheet_names tool request
 func handleReadSheetNames(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	args := ReadSheetNameArguments{}
 	issues := readSheetNameArgumentsSchema.Parse(request.Params.Arguments, &args)
 	if len(issues) != 0 {
 		return imcp.NewToolResultZogIssueMap(issues), nil
 	}
-	workbook, err := excelize.OpenFile(args.FileAbsolutePath)
+	return readSheetNames(args.FileAbsolutePath)
+}
+
+func readSheetNames(fileAbsolutePath string) (*mcp.CallToolResult, error) {
+	workbook, err := excelize.OpenFile(fileAbsolutePath)
 	if err != nil {
 		return nil, err
 	}

@@ -56,7 +56,10 @@ func handleReadSheetImage(ctx context.Context, request mcp.CallToolRequest) (*mc
 	if len(issues) != 0 {
 		return imcp.NewToolResultZogIssueMap(issues), nil
 	}
+	return readSheetImage(args.FileAbsolutePath, args.SheetName, args.Range, args.KnownPagingRanges)
+}
 
+func readSheetImage(fileAbsolutePath string, sheetName string, rangeStr string, knownPagingRanges []string) (*mcp.CallToolResult, error) {
 	quit := goxcel.MustInitGoxcel()
 	defer quit()
 
@@ -65,7 +68,7 @@ func handleReadSheetImage(ctx context.Context, request mcp.CallToolRequest) (*mc
 
 	// ワークブックを開く
 	workbooks := excel.MustWorkbooks()
-	workbook, releaseWorkbook, err := workbooks.Open(args.FileAbsolutePath)
+	workbook, releaseWorkbook, err := workbooks.Open(fileAbsolutePath)
 	if err != nil {
 		return imcp.NewToolResultInvalidArgumentError(fmt.Errorf("failed to open workbook: %w", err).Error()), nil
 	}
@@ -78,15 +81,15 @@ func handleReadSheetImage(ctx context.Context, request mcp.CallToolRequest) (*mc
 		if err != nil {
 			return nil
 		}
-		if name == args.SheetName {
+		if name == sheetName {
 			return fmt.Errorf("found")
 		}
 		return nil
 	})
 	if sheet == nil {
-		return nil, fmt.Errorf("sheet not found: %s", args.SheetName)
+		return nil, fmt.Errorf("sheet not found: %s", sheetName)
 	}
-	sheetName, err := sheet.Name()
+	foundSheetName, err := sheet.Name()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get sheet name: %w", err)
 	}
@@ -103,7 +106,7 @@ func handleReadSheetImage(ctx context.Context, request mcp.CallToolRequest) (*mc
 	}
 
 	var xlRange *goxcel.XlRange
-	if args.Range == "" {
+	if rangeStr == "" {
 		// range が指定されていない場合は最初の Range を使用
 		startCol, startRow, endCol, endRow, err := ParseRange(allRanges[0])
 		if err != nil {
@@ -115,7 +118,7 @@ func handleReadSheetImage(ctx context.Context, request mcp.CallToolRequest) (*mc
 		}
 	} else {
 		// range が指定されている場合は指定された範囲を使用
-		startCol, startRow, endCol, endRow, err := ParseRange(args.Range)
+		startCol, startRow, endCol, endRow, err := ParseRange(rangeStr)
 		if err != nil {
 			return imcp.NewToolResultInvalidArgumentError(fmt.Errorf("failed to parse range: %w", err).Error()), nil
 		}
@@ -129,7 +132,7 @@ func handleReadSheetImage(ctx context.Context, request mcp.CallToolRequest) (*mc
 	if err != nil {
 		return nil, fmt.Errorf("failed to get address: %w", err)
 	}
-	remainingRanges := pagingService.FilterRemainingPagingRanges(allRanges, append(args.KnownPagingRanges, currentRange))
+	remainingRanges := pagingService.FilterRemainingPagingRanges(allRanges, append(knownPagingRanges, currentRange))
 
 	// 画像の取得用バッファの準備
 	buf := new(bytes.Buffer)
@@ -146,13 +149,13 @@ func handleReadSheetImage(ctx context.Context, request mcp.CallToolRequest) (*mc
 	base64Image := base64.StdEncoding.EncodeToString(buf.Bytes())
 
 	text := "# Metadata\n"
-	text += fmt.Sprintf("- sheet name: %s\n", sheetName)
+	text += fmt.Sprintf("- sheet name: %s\n", foundSheetName)
 	text += fmt.Sprintf("- read range: %s\n", currentRange)
 	text += "# Notice\n"
 	if len(remainingRanges) > 0 {
 		text += "This sheet has more some ranges.\n"
 		text += "To read the next range, you should specify 'range' and 'knownPagingRanges' arguments as follows.\n"
-		text += fmt.Sprintf("`{ \"range\": \"%s\", \"knownPagingRanges\": [%s] }`", remainingRanges[0], "\""+strings.Join(append(args.KnownPagingRanges, currentRange), "\", \"")+"\"")
+		text += fmt.Sprintf("`{ \"range\": \"%s\", \"knownPagingRanges\": [%s] }`", remainingRanges[0], "\""+strings.Join(append(knownPagingRanges, currentRange), "\", \"")+"\"")
 	} else {
 		text += "All ranges have been read.\n"
 	}
