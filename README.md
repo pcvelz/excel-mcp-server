@@ -9,6 +9,8 @@ A Model Context Protocol (MCP) server that reads and writes spreadsheet data to 
 
 - Read text values from MS Excel file
 - Write text values to MS Excel file
+- Read formulas from MS Excel file
+- Write formulas to MS Excel file
 - Capture screen image from MS Excel file (Windows only)
 
 For more details, see the [tools](#tools) section.
@@ -92,6 +94,20 @@ Read data from Excel sheet with pagination.
 - `knownPagingRanges`
     - List of already read paging ranges
 
+### `read_sheet_formula`
+
+Read formulas from Excel sheet with pagination.
+
+**Arguments:**
+- `fileAbsolutePath`
+    - Absolute path to the Excel file
+- `sheetName`
+    - Sheet name in the Excel file
+- `range`
+    - Range of cells to read in the Excel sheet (e.g., "A1:C10"). [default: first paging range]
+- `knownPagingRanges`
+    - List of already read paging ranges
+
 ### `read_sheet_image`
 
 **[Windows only]** Read data as an image from the Excel sheet with pagination.
@@ -119,6 +135,20 @@ Write data to the Excel sheet.
     - Range of cells to read in the Excel sheet (e.g., "A1:C10").
 - `data`
     - Data to write to the Excel sheet
+
+### `write_sheet_formula`
+
+Write formulas to the Excel sheet.
+
+**Arguments:**
+- `fileAbsolutePath`
+    - Absolute path to the Excel file
+- `sheetName`
+    - Sheet name in the Excel file
+- `range`
+    - Range of cells to read in the Excel sheet (e.g., "A1:C10").
+- `data`
+    - Formulas to write to the Excel sheet
 
 <h2 id="tools">Configuration</h2>
 
