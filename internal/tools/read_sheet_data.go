@@ -110,7 +110,7 @@ func readSheetData(fileAbsolutePath string, sheetName string, valueRange string,
 	}
 
 	// HTMLテーブルの生成
-	table, err := CreateHTMLTable(workbook, sheetName, startCol, startRow, endCol, endRow)
+	table, err := CreateHTMLTableOfValues(workbook, sheetName, startCol, startRow, endCol, endRow)
 	if err != nil {
 		return nil, err
 	}

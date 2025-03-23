@@ -28,8 +28,14 @@ func ParseRange(rangeStr string) (int, int, int, int, error) {
 	return startCol, startRow, endCol, endRow, nil
 }
 
+func CreateHTMLTableOfValues(workbook *excelize.File, sheetName string, startCol int, startRow int, endCol int, endRow int) (*string, error) {
+	return createHTMLTable(workbook, sheetName, startCol, startRow, endCol, endRow, func(sheetName string, cellRange string) (string, error) {
+		return workbook.GetCellValue(sheetName, cellRange)
+	})
+}
+
 // CreateHTMLTable creates a table data in HTML format
-func CreateHTMLTable(workbook *excelize.File, sheetName string, startCol int, startRow int, endCol int, endRow int) (*string, error) {
+func createHTMLTable(workbook *excelize.File, sheetName string, startCol int, startRow int, endCol int, endRow int, extractor func(sheetName string, cellRange string) (string, error)) (*string, error) {
 	table := "<table>\n<tr><th></th>"
 
 	// 列アドレスの出力
@@ -47,7 +53,7 @@ func CreateHTMLTable(workbook *excelize.File, sheetName string, startCol int, st
 
 		for col := startCol; col <= endCol; col++ {
 			axis, _ := excelize.CoordinatesToCellName(col, row)
-			value, _ := workbook.GetCellValue(sheetName, axis)
+			value, _ := extractor(sheetName, axis)
 			table += fmt.Sprintf("<td>%s</td>", strings.ReplaceAll(value, "\n", "<br>"))
 		}
 		table += "</tr>\n"
