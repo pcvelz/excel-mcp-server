@@ -36,7 +36,18 @@ func CreateHTMLTableOfValues(workbook *excelize.File, sheetName string, startCol
 
 func CreateHTMLTableOfFormula(workbook *excelize.File, sheetName string, startCol int, startRow int, endCol int, endRow int) (*string, error) {
 	return createHTMLTable(workbook, sheetName, startCol, startRow, endCol, endRow, func(sheetName string, cellRange string) (string, error) {
-		return workbook.GetCellFormula(sheetName, cellRange)
+		formula, err := workbook.GetCellFormula(sheetName, cellRange)
+		if err != nil {
+			return "", err
+		}
+		if formula == "" {
+			// fallback
+			return workbook.GetCellValue(sheetName, cellRange)
+		}
+		if !strings.HasPrefix(formula, "=") {
+			formula = "=" + formula
+		}
+		return formula, nil
 	})
 }
 
