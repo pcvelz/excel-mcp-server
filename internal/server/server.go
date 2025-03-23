@@ -24,6 +24,7 @@ func New(version string) *ExcelServer {
 		tools.AddReadSheetImageTool(s.server)
 	}
 	tools.AddWriteSheetDataTool(s.server)
+	tools.AddWriteSheetFormulaTool(s.server)
 	return s
 }
 
