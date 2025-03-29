@@ -1,9 +1,11 @@
 # Excel MCP Server
 
+<img src="docs/img/icon-800.png" width="128">
+
 [![NPM Version](https://img.shields.io/npm/v/@negokaz/excel-mcp-server)](https://www.npmjs.com/package/@negokaz/excel-mcp-server)
 [![smithery badge](https://smithery.ai/badge/@negokaz/excel-mcp-server)](https://smithery.ai/server/@negokaz/excel-mcp-server)
 
-A Model Context Protocol (MCP) server that reads and writes spreadsheet data to MS Excel file.
+A Model Context Protocol (MCP) server that reads and writes MS Excel data.
 
 ## Features
 
