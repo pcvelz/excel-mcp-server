@@ -37,7 +37,7 @@ func NewFixedSizePagingStrategy(pageSize int, workbook *excelize.File, sheetName
 	}
 
 	// シートの次元情報を取得
-	dimension, err := workbook.GetSheetDimension(sheetName)
+	dimension, err := GetSheetDimensionByIterators(workbook, sheetName)
 	if err != nil {
 		return nil, err
 	}
