@@ -3,3 +3,9 @@
 /memory-bank
 # Added by goreleaser init:
 dist/
+# RooFlow
+.roo
+.roomodes
+.clinerules-default
+# repomix
+repomix-output.xml
