@@ -40,9 +40,28 @@ func AddWriteSheetDataTool(server *server.MCPServer) {
 			mcp.Required(),
 			mcp.Description("Range of cells in the Excel sheet (e.g., \"A1:C10\")"),
 		),
-		imcp.WithArray("data",
+		mcp.WithArray("data",
 			mcp.Required(),
 			mcp.Description("Data to write to the Excel sheet"),
+			mcp.Items(map[string]any{
+				"type": "array",
+				"items": map[string]any{
+					"anyOf": []any{
+						map[string]any{
+							"type": "string",
+						},
+						map[string]any{
+							"type": "number",
+						},
+						map[string]any{
+							"type": "boolean",
+						},
+						map[string]any{
+							"type": "null",
+						},
+					},
+				},
+			}),
 		),
 	), handleWriteSheetData)
 }

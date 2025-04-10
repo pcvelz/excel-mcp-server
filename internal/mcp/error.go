@@ -14,14 +14,15 @@ func NewToolResultInvalidArgumentError(message string) *mcp.CallToolResult {
 func NewToolResultZogIssueMap(errs z.ZogIssueMap) *mcp.CallToolResult {
 	issues := z.Issues.SanitizeMap(errs)
 
-	var issueResults []any
+	var issueResults []mcp.Content
 	for k, messages := range issues {
 		for _, message := range messages {
-			issueResults = append(issueResults, NewToolResultInvalidArgumentError(fmt.Sprintf("%s: %s", k, message)))
+			issueResults = append(issueResults, mcp.NewTextContent(fmt.Sprintf("Invalid argument: %s: %s", k, message)))
 		}
 	}
 
 	return &mcp.CallToolResult{
 		Content: issueResults,
+		IsError: true,
 	}
 }

@@ -40,9 +40,19 @@ func AddWriteSheetFormulaTool(server *server.MCPServer) {
 			mcp.Required(),
 			mcp.Description("Range of cells in the Excel sheet (e.g., \"A1:C10\")"),
 		),
-		imcp.WithArray("formulas",
+		mcp.WithArray("formulas",
 			mcp.Required(),
 			mcp.Description("Formulas to write to the Excel sheet (e.g., \"=A1+B1\")"),
+			mcp.Items(map[string]any{
+				"type": "array",
+				"items": map[string]any{
+					"anyOf": []any{
+						map[string]any{
+							"type": "string",
+						},
+					},
+				},
+			}),
 		),
 	), handleWriteSheetFormula)
 }

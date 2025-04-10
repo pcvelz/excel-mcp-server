@@ -45,7 +45,7 @@ func readSheetNames(fileAbsolutePath string) (*mcp.CallToolResult, error) {
 	defer workbook.Close()
 
 	sheetList := workbook.GetSheetList()
-	var sheetNames []any
+	var sheetNames []mcp.Content
 	for _, name := range sheetList {
 		sheetNames = append(sheetNames, mcp.NewTextContent(name))
 	}

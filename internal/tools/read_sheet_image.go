@@ -44,8 +44,11 @@ func AddReadSheetImageTool(server *server.MCPServer) {
 		mcp.WithString("range",
 			mcp.Description("Range of cells to read in the Excel sheet (e.g., \"A1:C10\"). [default: first paging range]"),
 		),
-		imcp.WithArray("knownPagingRanges",
+		mcp.WithArray("knownPagingRanges",
 			mcp.Description("List of already read paging ranges"),
+			mcp.Items(map[string]any{
+				"type": "string",
+			}),
 		),
 	), handleReadSheetImage)
 }
