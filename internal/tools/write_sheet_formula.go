@@ -108,7 +108,7 @@ func writeSheetFormula(fileAbsolutePath string, sheetName string, rangeStr strin
 		}
 	}
 
-	if err := workbook.Save(); err != nil {
+	if err := SaveExcelize(workbook); err != nil {
 		return nil, err
 	}
 

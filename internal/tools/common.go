@@ -3,6 +3,8 @@ package tools
 import (
 	"fmt"
 	"math"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -147,4 +149,18 @@ func FetchRangeAddress(r *goxcel.XlRange) (string, error) {
 		return "", err
 	}
 	return strings.ReplaceAll(address.ToString(), "$", ""), nil
+}
+
+// SaveExcelize saves the Excel file to the specified path.
+// Excelize's Save method restricts the file path length to 207 characters,
+// but since this limitation has been relaxed in some environments,
+// we ignore this restriction.
+// https://github.com/qax-os/excelize/blob/v2.9.0/file.go#L71-L73
+func SaveExcelize(f *excelize.File) error {
+	file, err := os.OpenFile(filepath.Clean(f.Path), os.O_WRONLY|os.O_TRUNC|os.O_CREATE, os.ModePerm)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	return f.Write(file)
 }

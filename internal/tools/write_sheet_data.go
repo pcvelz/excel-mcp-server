@@ -132,7 +132,7 @@ func writeSheetData(fileAbsolutePath string, sheetName string, rangeStr string, 
 		}
 	}
 
-	if err := workbook.Save(); err != nil {
+	if err := SaveExcelize(workbook); err != nil {
 		return nil, err
 	}
 
