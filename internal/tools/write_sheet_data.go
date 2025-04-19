@@ -7,6 +7,7 @@ import (
 	z "github.com/Oudwins/zog"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
+	"github.com/negokaz/excel-mcp-server/internal/excel"
 	imcp "github.com/negokaz/excel-mcp-server/internal/mcp"
 	"github.com/xuri/excelize/v2"
 )
@@ -91,16 +92,16 @@ func handleWriteSheetData(ctx context.Context, request mcp.CallToolRequest) (*mc
 }
 
 func writeSheetData(fileAbsolutePath string, sheetName string, rangeStr string, data [][]any) (*mcp.CallToolResult, error) {
-	workbook, err := excelize.OpenFile(fileAbsolutePath)
+	workbook, closeFn, err := excel.OpenFile(fileAbsolutePath)
 	if err != nil {
 		return nil, err
 	}
-	defer workbook.Close()
+	defer closeFn()
 
 	// シートの取得
-	index, _ := workbook.GetSheetIndex(sheetName)
-	if index == -1 {
-		return imcp.NewToolResultInvalidArgumentError(fmt.Sprintf("sheet %s not found", sheetName)), nil
+	worksheet, err := workbook.FindSheet(sheetName)
+	if err != nil {
+		return imcp.NewToolResultInvalidArgumentError(err.Error()), nil
 	}
 
 	startCol, startRow, endCol, endRow, err := ParseRange(rangeStr)
@@ -125,24 +126,24 @@ func writeSheetData(fileAbsolutePath string, sheetName string, rangeStr string, 
 			if err != nil {
 				return nil, err
 			}
-			err = workbook.SetCellValue(sheetName, cell, cellValue)
+			err = worksheet.SetValue(cell, cellValue)
 			if err != nil {
 				return nil, err
 			}
 		}
 	}
 
-	if err := SaveExcelize(workbook); err != nil {
+	if err := workbook.Save(); err != nil {
 		return nil, err
 	}
 
 	// HTMLテーブルの生成
-	table, err := CreateHTMLTableOfValues(workbook, sheetName, startCol, startRow, endCol, endRow)
+	table, err := "", nil
 	if err != nil {
 		return nil, err
 	}
 	html := "<h2>Sheet Data</h2>\n"
-	html += *table + "\n"
+	html += table + "\n"
 	html += "<h2>Metadata</h2>\n"
 	html += "<ul>\n"
 	html += fmt.Sprintf("<li>sheet name: %s</li>\n", sheetName)
