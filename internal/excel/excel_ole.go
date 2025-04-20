@@ -1,10 +1,16 @@
 package excel
 
 import (
+	"bufio"
+	"bytes"
 	"fmt"
+	"io"
 	"path/filepath"
 	"strings"
-	"time"
+
+	"encoding/base64"
+
+	"github.com/skanehira/clipboard-image"
 
 	"github.com/go-ole/go-ole"
 	"github.com/go-ole/go-ole/oleutil"
@@ -18,7 +24,7 @@ type OleWorksheet struct {
 	worksheet *ole.IDispatch
 }
 
-func NewExcelOle(absolutePath string) (Excel, func(), error) {
+func NewExcelOle(absolutePath string) (*OleExcel, func(), error) {
 	ole.CoInitializeEx(0, ole.COINIT_MULTITHREADED)
 
 	unknown, err := oleutil.GetActiveObject("Excel.Application")
@@ -44,6 +50,32 @@ func NewExcelOle(absolutePath string) (Excel, func(), error) {
 		}
 	}
 	return nil, func() {}, fmt.Errorf("workbook not found: %s", absolutePath)
+}
+
+func NewExcelOleWithNewObject(absolutePath string) (*OleExcel, func(), error) {
+	ole.CoInitializeEx(0, ole.COINIT_MULTITHREADED)
+
+	unknown, err := oleutil.CreateObject("Excel.Application")
+	if err != nil {
+		return nil, func() {}, err
+	}
+	excel, err := unknown.QueryInterface(ole.IID_IDispatch)
+	if err != nil {
+		return nil, func() {}, err
+	}
+	workbooks := oleutil.MustGetProperty(excel, "Workbooks").ToIDispatch()
+	workbook, err := oleutil.CallMethod(workbooks, "Open", absolutePath)
+	if err != nil {
+		return nil, func() {}, err
+	}
+	w := workbook.ToIDispatch()
+	return &OleExcel{workbook: w}, func() {
+		w.Release()
+		workbooks.Release()
+		excel.Release()
+		oleutil.CallMethod(excel, "Close")
+		ole.CoUninitialize()
+	}, nil
 }
 
 func (o *OleExcel) FindSheet(sheetName string) (Worksheet, error) {
@@ -97,28 +129,12 @@ func (o *OleWorksheet) SetFormula(cell string, formula string) error {
 func (o *OleWorksheet) GetValue(cell string) (string, error) {
 	range_ := oleutil.MustGetProperty(o.worksheet, "Range", cell).ToIDispatch()
 	defer range_.Release()
-	value := oleutil.MustGetProperty(range_, "Value").Value()
+	value := oleutil.MustGetProperty(range_, "Text").Value()
 	switch v := value.(type) {
-	case int, int8, int16, int32, int64:
-		return fmt.Sprintf("%d", v), nil
-	case uint, uint8, uint16, uint32, uint64:
-		return fmt.Sprintf("%d", v), nil
-	case float32, float64:
-		return fmt.Sprintf("%g", v), nil
-	case complex64, complex128:
-		return fmt.Sprintf("%g", v), nil
-	case []byte:
-		return string(v), nil
-	case bool:
-		return fmt.Sprintf("%t", v), nil
 	case string:
 		return v, nil
-	case time.Time:
-		return v.Format(time.RFC3339), nil
 	case nil:
 		return "", nil
-	case *ole.VARIANT:
-		return v.ToString(), nil
 	default: // Handle other types as needed
 		return "", fmt.Errorf("unsupported type: %T", v)
 	}
@@ -173,6 +189,34 @@ func (o *OleWorksheet) HPageBreaks() ([]int, error) {
 		pageBreaks[i-1] = int(row)
 	}
 	return pageBreaks, nil
+}
+
+func (o *OleWorksheet) CapturePicture(captureRange string) (string, error) {
+	r := oleutil.MustGetProperty(o.worksheet, "Range", captureRange).ToIDispatch()
+	defer r.Release()
+	_, err := oleutil.CallMethod(
+		r,
+		"CopyPicture",
+		int(1), // xlScreen (https://learn.microsoft.com/ja-jp/dotnet/api/microsoft.office.interop.excel.xlpictureappearance?view=excel-pia)
+		int(2), // xlBitmap (https://learn.microsoft.com/ja-jp/dotnet/api/microsoft.office.interop.excel.xlcopypictureformat?view=excel-pia)
+	)
+	if err != nil {
+		return "", err
+	}
+	// Read the image from the clipboard
+	buf := new(bytes.Buffer)
+	bufWriter := bufio.NewWriter(buf)
+	clipboardReader, err := clipboard.ReadFromClipboard()
+	if err != nil {
+		return "", fmt.Errorf("failed to read from clipboard: %w", err)
+	}
+	if _, err := io.Copy(bufWriter, clipboardReader); err != nil {
+		return "", fmt.Errorf("failed to copy clipboard data: %w", err)
+	}
+	if err := bufWriter.Flush(); err != nil {
+		return "", fmt.Errorf("failed to flush buffer: %w", err)
+	}
+	return base64.StdEncoding.EncodeToString(buf.Bytes()), nil
 }
 
 func normalizePath(path string) string {

@@ -2,9 +2,10 @@ package excel
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
-  "math"
+	"strings"
 
 	"github.com/xuri/excelize/v2"
 )
@@ -66,7 +67,18 @@ func (w *ExcelizeWorksheet) GetValue(cell string) (string, error) {
 }
 
 func (w *ExcelizeWorksheet) GetFormula(cell string) (string, error) {
-	return w.file.GetCellFormula(w.sheetName, cell)
+	formula, err := w.file.GetCellFormula(w.sheetName, cell)
+	if err != nil {
+		return "", fmt.Errorf("failed to get formula: %w", err)
+	}
+	if formula == "" {
+		// fallback
+		return w.GetValue(cell)
+	}
+	if !strings.HasPrefix(formula, "=") {
+		formula = "=" + formula
+	}
+	return formula, nil
 }
 
 func (w *ExcelizeWorksheet) GetDimention() (string, error) {
@@ -128,5 +140,9 @@ func (w *ExcelizeWorksheet) GetDimention() (string, error) {
 }
 
 func (w *ExcelizeWorksheet) GetPagingStrategy(pageSize int) (PagingStrategy, error) {
-  return NewExcelizeFixedSizePagingStrategy(pageSize, w)
+	return NewExcelizeFixedSizePagingStrategy(pageSize, w)
+}
+
+func (w *ExcelizeWorksheet) CapturePicture(captureRange string) (string, error) {
+	return "", fmt.Errorf("CapturePicture is not supported in Excelize")
 }

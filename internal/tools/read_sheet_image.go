@@ -1,18 +1,14 @@
 package tools
 
 import (
-	"bufio"
-	"bytes"
 	"context"
-	"encoding/base64"
 	"fmt"
 	"strings"
 
 	z "github.com/Oudwins/zog"
-	"github.com/devlights/goxcel"
-	"github.com/devlights/goxcel/constants"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
+	"github.com/negokaz/excel-mcp-server/internal/excel"
 	imcp "github.com/negokaz/excel-mcp-server/internal/mcp"
 )
 
@@ -63,96 +59,59 @@ func handleReadSheetImage(ctx context.Context, request mcp.CallToolRequest) (*mc
 }
 
 func readSheetImage(fileAbsolutePath string, sheetName string, rangeStr string, knownPagingRanges []string) (*mcp.CallToolResult, error) {
-	quit := goxcel.MustInitGoxcel()
-	defer quit()
-
-	excel, release := goxcel.MustNewGoxcel()
-	defer release()
-
-	// ワークブックを開く
-	workbooks := excel.MustWorkbooks()
-	workbook, releaseWorkbook, err := workbooks.Open(fileAbsolutePath)
-	if err != nil {
-		return imcp.NewToolResultInvalidArgumentError(fmt.Errorf("failed to open workbook: %w", err).Error()), nil
-	}
+	workbook, releaseWorkbook, err := excel.NewExcelOle(fileAbsolutePath)
 	defer releaseWorkbook()
-
-	// ワークシートを取得
-	sheets := workbook.MustWorkSheets()
-	sheet, _ := sheets.Walk(func(sheet *goxcel.Worksheet, i int) error {
-		name, err := sheet.Name()
-		if err != nil {
-			return nil
-		}
-		if name == sheetName {
-			return fmt.Errorf("found")
-		}
-		return nil
-	})
-	if sheet == nil {
-		return nil, fmt.Errorf("sheet not found: %s", sheetName)
-	}
-	foundSheetName, err := sheet.Name()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get sheet name: %w", err)
+		workbook, releaseWorkbook, err = excel.NewExcelOleWithNewObject(fileAbsolutePath)
+		defer releaseWorkbook()
+		if err != nil {
+			return imcp.NewToolResultInvalidArgumentError(fmt.Errorf("failed to open workbook: %w", err).Error()), nil
+		}
+	}
+	// シート取得
+	var worksheet excel.Worksheet
+	if sheetName == "" {
+		// シート名未指定時は "Sheet1" を仮定
+		worksheet, err = workbook.FindSheet("Sheet1")
+		if err != nil {
+			return imcp.NewToolResultInvalidArgumentError("sheet not found"), nil
+		}
+		sheetName, _ = worksheet.Name()
+	} else {
+		worksheet, err = workbook.FindSheet(sheetName)
+		if err != nil {
+			return imcp.NewToolResultInvalidArgumentError(fmt.Sprintf("sheet %s not found", sheetName)), nil
+		}
 	}
 
-	pagingStrategy, err := NewGoxcelPagingStrategy(5000, sheet)
+	pagingStrategy, err := worksheet.GetPagingStrategy(5000)
 	if err != nil {
 		return nil, err
 	}
-	pagingService := NewPagingRangeService(pagingStrategy)
+	pagingService := excel.NewPagingRangeService(pagingStrategy)
 
 	allRanges := pagingService.GetPagingRanges()
 	if len(allRanges) == 0 {
 		return imcp.NewToolResultInvalidArgumentError("no range available to read"), nil
 	}
 
-	var xlRange *goxcel.XlRange
+	var currentRange string
 	if rangeStr == "" {
 		// range が指定されていない場合は最初の Range を使用
-		startCol, startRow, endCol, endRow, err := ParseRange(allRanges[0])
-		if err != nil {
-			return nil, err
-		}
-		xlRange, err = sheet.Range(startRow, startCol, endRow, endCol)
-		if err != nil {
-			return nil, err
-		}
+		currentRange = allRanges[0]
 	} else {
 		// range が指定されている場合は指定された範囲を使用
-		startCol, startRow, endCol, endRow, err := ParseRange(rangeStr)
-		if err != nil {
-			return imcp.NewToolResultInvalidArgumentError(fmt.Errorf("failed to parse range: %w", err).Error()), nil
-		}
-		// 必要な部分だけを選択するようにする
-		xlRange, err = sheet.Range(startRow, startCol, endRow, endCol)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create range: %w", err)
-		}
-	}
-	currentRange, err := FetchRangeAddress(xlRange)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get address: %w", err)
+		currentRange = rangeStr
 	}
 	remainingRanges := pagingService.FilterRemainingPagingRanges(allRanges, append(knownPagingRanges, currentRange))
 
-	// 画像の取得用バッファの準備
-	buf := new(bytes.Buffer)
-	bufWriter := bufio.NewWriter(buf)
-	err = xlRange.CopyPictureToFile(bufWriter, constants.XlScreen, constants.XlBitmap)
+	base64image, err := worksheet.CapturePicture(currentRange)
 	if err != nil {
 		return nil, fmt.Errorf("failed to copy range to image: %w", err)
 	}
-	err = bufWriter.Flush()
-	if err != nil {
-		return nil, fmt.Errorf("failed to flush buffer: %w", err)
-	}
-	// base64 エンコード
-	base64Image := base64.StdEncoding.EncodeToString(buf.Bytes())
 
 	text := "# Metadata\n"
-	text += fmt.Sprintf("- sheet name: %s\n", foundSheetName)
+	text += fmt.Sprintf("- sheet name: %s\n", sheetName)
 	text += fmt.Sprintf("- read range: %s\n", currentRange)
 	text += "# Notice\n"
 	if len(remainingRanges) > 0 {
@@ -166,7 +125,7 @@ func readSheetImage(fileAbsolutePath string, sheetName string, rangeStr string, 
 	// 結果を返却
 	return mcp.NewToolResultImage(
 		text,
-		base64Image,
+		base64image,
 		"image/png",
 	), nil
 }
