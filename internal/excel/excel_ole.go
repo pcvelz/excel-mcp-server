@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/go-ole/go-ole"
 	"github.com/go-ole/go-ole/oleutil"
@@ -93,11 +94,34 @@ func (o *OleWorksheet) SetFormula(cell string, formula string) error {
 	return err
 }
 
-func (o *OleWorksheet) GetValue(cell string) (any, error) {
+func (o *OleWorksheet) GetValue(cell string) (string, error) {
 	range_ := oleutil.MustGetProperty(o.worksheet, "Range", cell).ToIDispatch()
 	defer range_.Release()
 	value := oleutil.MustGetProperty(range_, "Value").Value()
-	return value, nil
+	switch v := value.(type) {
+	case int, int8, int16, int32, int64:
+		return fmt.Sprintf("%d", v), nil
+	case uint, uint8, uint16, uint32, uint64:
+		return fmt.Sprintf("%d", v), nil
+	case float32, float64:
+		return fmt.Sprintf("%g", v), nil
+	case complex64, complex128:
+		return fmt.Sprintf("%g", v), nil
+	case []byte:
+		return string(v), nil
+	case bool:
+		return fmt.Sprintf("%t", v), nil
+	case string:
+		return v, nil
+	case time.Time:
+		return v.Format(time.RFC3339), nil
+	case nil:
+		return "", nil
+	case *ole.VARIANT:
+		return v.ToString(), nil
+	default: // Handle other types as needed
+		return "", fmt.Errorf("unsupported type: %T", v)
+	}
 }
 
 func (o *OleWorksheet) GetFormula(cell string) (string, error) {
@@ -105,6 +129,50 @@ func (o *OleWorksheet) GetFormula(cell string) (string, error) {
 	defer range_.Release()
 	formula := oleutil.MustGetProperty(range_, "Formula").ToString()
 	return formula, nil
+}
+
+func (o *OleWorksheet) GetDimention() (string, error) {
+	range_ := oleutil.MustGetProperty(o.worksheet, "UsedRange").ToIDispatch()
+	defer range_.Release()
+	dimension := oleutil.MustGetProperty(range_, "Address").ToString()
+	return dimension, nil
+}
+
+func (o *OleWorksheet) GetPagingStrategy(pageSize int) (PagingStrategy, error) {
+	return NewOlePagingStrategy(1000, o)
+}
+
+func (o *OleWorksheet) PrintArea() (string, error) {
+	v, err := oleutil.GetProperty(o.worksheet, "PageSetup")
+	if err != nil {
+		return "", err
+	}
+	pageSetup := v.ToIDispatch()
+	defer pageSetup.Release()
+
+	printArea := oleutil.MustGetProperty(pageSetup, "PrintArea").ToString()
+	return printArea, nil
+}
+
+func (o *OleWorksheet) HPageBreaks() ([]int, error) {
+	v, err := oleutil.GetProperty(o.worksheet, "HPageBreaks")
+	if err != nil {
+		return nil, err
+	}
+	hPageBreaks := v.ToIDispatch()
+	defer hPageBreaks.Release()
+
+	count := int(oleutil.MustGetProperty(hPageBreaks, "Count").Val)
+	pageBreaks := make([]int, count)
+	for i := 1; i <= count; i++ {
+		pageBreak := oleutil.MustGetProperty(hPageBreaks, "Item", i).ToIDispatch()
+		defer pageBreak.Release()
+		location := oleutil.MustGetProperty(pageBreak, "Location").ToIDispatch()
+		defer location.Release()
+		row := oleutil.MustGetProperty(location, "Row").Val
+		pageBreaks[i-1] = int(row)
+	}
+	return pageBreaks, nil
 }
 
 func normalizePath(path string) string {

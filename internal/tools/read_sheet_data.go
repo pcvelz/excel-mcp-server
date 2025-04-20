@@ -9,7 +9,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 	imcp "github.com/negokaz/excel-mcp-server/internal/mcp"
-	"github.com/xuri/excelize/v2"
+	excel "github.com/negokaz/excel-mcp-server/internal/excel"
 )
 
 type ReadSheetDataArguments struct {
@@ -63,28 +63,35 @@ func readSheetData(fileAbsolutePath string, sheetName string, valueRange string,
 		return imcp.NewToolResultZogIssueMap(issues), nil
 	}
 
-	// ワークブックを開く
-	workbook, err := excelize.OpenFile(fileAbsolutePath)
+	// internal/excel パッケージでワークブックを開く
+	workbook, release, err := excel.OpenFile(fileAbsolutePath)
 	if err != nil {
 		return nil, err
 	}
-	defer workbook.Close()
+	defer release()
 
-	// シート名の確認
+	// シート取得
+	var worksheet excel.Worksheet
 	if sheetName == "" {
-		sheetName = workbook.GetSheetList()[0]
-	}
-	index, _ := workbook.GetSheetIndex(sheetName)
-	if index == -1 {
-		return imcp.NewToolResultInvalidArgumentError(fmt.Sprintf("sheet %s not found", sheetName)), nil
+		// シート名未指定時は "Sheet1" を仮定
+		worksheet, err = workbook.FindSheet("Sheet1")
+		if err != nil {
+			return imcp.NewToolResultInvalidArgumentError("sheet not found"), nil
+		}
+		sheetName, _ = worksheet.Name()
+	} else {
+		worksheet, err = workbook.FindSheet(sheetName)
+		if err != nil {
+			return imcp.NewToolResultInvalidArgumentError(fmt.Sprintf("sheet %s not found", sheetName)), nil
+		}
 	}
 
 	// ページング戦略の初期化
-	strategy, err := NewFixedSizePagingStrategy(config.EXCEL_MCP_PAGING_CELLS_LIMIT, workbook, sheetName)
+	strategy, err := worksheet.GetPagingStrategy(config.EXCEL_MCP_PAGING_CELLS_LIMIT)
 	if err != nil {
 		return nil, err
 	}
-	pagingService := NewPagingRangeService(strategy)
+	pagingService := excel.NewPagingRangeService(strategy)
 
 	// 利用可能な範囲を取得
 	allRanges := pagingService.GetPagingRanges()
@@ -107,13 +114,13 @@ func readSheetData(fileAbsolutePath string, sheetName string, valueRange string,
 	}
 
 	// 範囲を解析
-	startCol, startRow, endCol, endRow, err := ParseRange(currentRange)
+	startCol, startRow, endCol, endRow, err := excel.ParseRange(currentRange)
 	if err != nil {
 		return nil, err
 	}
 
 	// HTMLテーブルの生成
-	table, err := CreateHTMLTableOfValues(workbook, sheetName, startCol, startRow, endCol, endRow)
+	table, err := CreateHTMLTableOfValues(worksheet, startCol, startRow, endCol, endRow)
 	if err != nil {
 		return nil, err
 	}

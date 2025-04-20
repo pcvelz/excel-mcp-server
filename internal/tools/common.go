@@ -11,6 +11,8 @@ import (
 	"github.com/devlights/goxcel"
 	"github.com/go-ole/go-ole/oleutil"
 	"github.com/xuri/excelize/v2"
+
+  "github.com/negokaz/excel-mcp-server/internal/excel"
 )
 
 // parseRange parses Excel's range string (e.g. A1:C10)
@@ -91,21 +93,21 @@ func GetSheetDimensionByIterators(f *excelize.File, sheetName string) (string, e
 	return dimension, nil
 }
 
-func CreateHTMLTableOfValues(workbook *excelize.File, sheetName string, startCol int, startRow int, endCol int, endRow int) (*string, error) {
-	return createHTMLTable(workbook, sheetName, startCol, startRow, endCol, endRow, func(sheetName string, cellRange string) (string, error) {
-		return workbook.GetCellValue(sheetName, cellRange)
+func CreateHTMLTableOfValues(worksheet excel.Worksheet, startCol int, startRow int, endCol int, endRow int) (*string, error) {
+	return createHTMLTable(worksheet, startCol, startRow, endCol, endRow, func(cellRange string) (string, error) {
+		return worksheet.GetValue(cellRange)
 	})
 }
 
-func CreateHTMLTableOfFormula(workbook *excelize.File, sheetName string, startCol int, startRow int, endCol int, endRow int) (*string, error) {
-	return createHTMLTable(workbook, sheetName, startCol, startRow, endCol, endRow, func(sheetName string, cellRange string) (string, error) {
-		formula, err := workbook.GetCellFormula(sheetName, cellRange)
+func CreateHTMLTableOfFormula(worksheet excel.Worksheet, startCol int, startRow int, endCol int, endRow int) (*string, error) {
+	return createHTMLTable(worksheet, startCol, startRow, endCol, endRow, func(cellRange string) (string, error) {
+		formula, err := worksheet.GetFormula(cellRange)
 		if err != nil {
 			return "", err
 		}
 		if formula == "" {
 			// fallback
-			return workbook.GetCellValue(sheetName, cellRange)
+			return worksheet.GetValue(cellRange)
 		}
 		if !strings.HasPrefix(formula, "=") {
 			formula = "=" + formula
@@ -115,7 +117,7 @@ func CreateHTMLTableOfFormula(workbook *excelize.File, sheetName string, startCo
 }
 
 // CreateHTMLTable creates a table data in HTML format
-func createHTMLTable(workbook *excelize.File, sheetName string, startCol int, startRow int, endCol int, endRow int, extractor func(sheetName string, cellRange string) (string, error)) (*string, error) {
+func createHTMLTable(worksheet excel.Worksheet, startCol int, startRow int, endCol int, endRow int, extractor func(cellRange string) (string, error)) (*string, error) {
 	table := "<table>\n<tr><th></th>"
 
 	// 列アドレスの出力
@@ -133,7 +135,7 @@ func createHTMLTable(workbook *excelize.File, sheetName string, startCol int, st
 
 		for col := startCol; col <= endCol; col++ {
 			axis, _ := excelize.CoordinatesToCellName(col, row)
-			value, _ := extractor(sheetName, axis)
+			value, _ := extractor(axis)
 			table += fmt.Sprintf("<td>%s</td>", strings.ReplaceAll(value, "\n", "<br>"))
 		}
 		table += "</tr>\n"

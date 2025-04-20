@@ -8,6 +8,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 	imcp "github.com/negokaz/excel-mcp-server/internal/mcp"
+	"github.com/negokaz/excel-mcp-server/internal/excel"
 	"github.com/xuri/excelize/v2"
 )
 
@@ -67,15 +68,14 @@ func handleWriteSheetFormula(ctx context.Context, request mcp.CallToolRequest) (
 }
 
 func writeSheetFormula(fileAbsolutePath string, sheetName string, rangeStr string, formulas [][]string) (*mcp.CallToolResult, error) {
-	workbook, err := excelize.OpenFile(fileAbsolutePath)
+	book, releaseFn, err := excel.OpenFile(fileAbsolutePath)
 	if err != nil {
 		return nil, err
 	}
-	defer workbook.Close()
+	defer releaseFn()
 
-	// シートの取得
-	index, _ := workbook.GetSheetIndex(sheetName)
-	if index == -1 {
+	worksheet, err := book.FindSheet(sheetName)
+	if err != nil {
 		return imcp.NewToolResultInvalidArgumentError(fmt.Sprintf("sheet %s not found", sheetName)), nil
 	}
 
@@ -84,13 +84,11 @@ func writeSheetFormula(fileAbsolutePath string, sheetName string, rangeStr strin
 		return imcp.NewToolResultInvalidArgumentError(err.Error()), nil
 	}
 
-	// データの整合性チェック
 	rangeRowSize := endRow - startRow + 1
 	if len(formulas) != rangeRowSize {
 		return imcp.NewToolResultInvalidArgumentError(fmt.Sprintf("number of rows in data (%d) does not match range size (%d)", len(formulas), rangeRowSize)), nil
 	}
 
-	// データの書き込み
 	for i, row := range formulas {
 		rangeColumnSize := endCol - startCol + 1
 		if len(row) != rangeColumnSize {
@@ -101,19 +99,18 @@ func writeSheetFormula(fileAbsolutePath string, sheetName string, rangeStr strin
 			if err != nil {
 				return nil, err
 			}
-			err = workbook.SetCellFormula(sheetName, cell, formula)
-			if err != nil {
+			if err := worksheet.SetFormula(cell, formula); err != nil {
 				return nil, err
 			}
 		}
 	}
 
-	if err := SaveExcelize(workbook); err != nil {
+	if err := book.Save(); err != nil {
 		return nil, err
 	}
 
 	// HTMLテーブルの生成
-	table, err := CreateHTMLTableOfFormula(workbook, sheetName, startCol, startRow, endCol, endRow)
+	table, err := CreateHTMLTableOfFormula(worksheet, startCol, startRow, endCol, endRow)
 	if err != nil {
 		return nil, err
 	}
@@ -129,3 +126,4 @@ func writeSheetFormula(fileAbsolutePath string, sheetName string, rangeStr strin
 
 	return mcp.NewToolResultText(html), nil
 }
+

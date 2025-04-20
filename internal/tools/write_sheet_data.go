@@ -138,12 +138,12 @@ func writeSheetData(fileAbsolutePath string, sheetName string, rangeStr string, 
 	}
 
 	// HTMLテーブルの生成
-	table, err := "", nil
+	table, err := CreateHTMLTableOfFormula(worksheet, startCol, startRow, endCol, endRow)
 	if err != nil {
 		return nil, err
 	}
 	html := "<h2>Sheet Data</h2>\n"
-	html += table + "\n"
+	html += *table + "\n"
 	html += "<h2>Metadata</h2>\n"
 	html += "<ul>\n"
 	html += fmt.Sprintf("<li>sheet name: %s</li>\n", sheetName)

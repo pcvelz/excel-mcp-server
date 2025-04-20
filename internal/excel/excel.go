@@ -13,8 +13,10 @@ type Worksheet interface {
 	Name() (string, error)
 	SetValue(cell string, value any) error
 	SetFormula(cell string, formula string) error
-	GetValue(cell string) (any, error)
+	GetValue(cell string) (string, error)
 	GetFormula(cell string) (string, error)
+	GetDimention() (string, error)
+	GetPagingStrategy(pageSize int) (PagingStrategy, error)
 }
 
 func OpenFile(absoluteFilePath string) (Excel, func(), error) {

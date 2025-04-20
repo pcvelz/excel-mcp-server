@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+  "math"
 
 	"github.com/xuri/excelize/v2"
 )
@@ -60,10 +61,72 @@ func (w *ExcelizeWorksheet) SetFormula(cell string, formula string) error {
 	return w.file.SetCellFormula(w.sheetName, cell, formula)
 }
 
-func (w *ExcelizeWorksheet) GetValue(cell string) (any, error) {
+func (w *ExcelizeWorksheet) GetValue(cell string) (string, error) {
 	return w.file.GetCellValue(w.sheetName, cell)
 }
 
 func (w *ExcelizeWorksheet) GetFormula(cell string) (string, error) {
 	return w.file.GetCellFormula(w.sheetName, cell)
+}
+
+func (w *ExcelizeWorksheet) GetDimention() (string, error) {
+	minRow, maxRow := math.MaxInt, 0
+	minCol, maxCol := math.MaxInt, 0
+
+	cols, err := w.file.Cols(w.sheetName)
+	if err != nil {
+		return "", fmt.Errorf("failed to get columns iterator: %w", err)
+	}
+
+	colIdx := 1
+	for cols.Next() {
+		rowData, err := cols.Rows()
+		if err != nil {
+			return "", fmt.Errorf("failed to get row data: %w", err)
+		}
+
+		currentColumnHasData := false
+		for rowIdx, val := range rowData {
+			if val != "" {
+				currentColumnHasData = true
+				rowNum := rowIdx + 1
+				if rowNum < minRow {
+					minRow = rowNum
+				}
+				if rowNum > maxRow {
+					maxRow = rowNum
+				}
+			}
+		}
+		if currentColumnHasData {
+			if colIdx < minCol {
+				minCol = colIdx
+			}
+			if colIdx > maxCol {
+				maxCol = colIdx
+			}
+		}
+		colIdx++
+	}
+
+	// If no data exists
+	if maxRow == 0 || maxCol == 0 {
+		minCol, maxCol, minRow, maxRow = 1, 1, 1, 1
+	}
+
+	startCell, err := excelize.CoordinatesToCellName(minCol, minRow)
+	if err != nil {
+		return "", fmt.Errorf("failed to convert coordinates to cell name: %w", err)
+	}
+	endCell, err := excelize.CoordinatesToCellName(maxCol, maxRow)
+	if err != nil {
+		return "", fmt.Errorf("failed to convert coordinates to cell name: %w", err)
+	}
+
+	dimension := fmt.Sprintf("%s:%s", startCell, endCell)
+	return dimension, nil
+}
+
+func (w *ExcelizeWorksheet) GetPagingStrategy(pageSize int) (PagingStrategy, error) {
+  return NewExcelizeFixedSizePagingStrategy(pageSize, w)
 }
