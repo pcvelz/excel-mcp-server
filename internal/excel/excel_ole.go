@@ -78,6 +78,23 @@ func NewExcelOleWithNewObject(absolutePath string) (*OleExcel, func(), error) {
 	}, nil
 }
 
+func (o *OleExcel) GetSheetNames() ([]string, error) {
+	worksheets := oleutil.MustGetProperty(o.workbook, "Worksheets").ToIDispatch()
+	defer worksheets.Release()
+
+	count := int(oleutil.MustGetProperty(worksheets, "Count").Val)
+	names := make([]string, count)
+
+	for i := 1; i <= count; i++ {
+		worksheet := oleutil.MustGetProperty(worksheets, "Item", i).ToIDispatch()
+		name := oleutil.MustGetProperty(worksheet, "Name").ToString()
+		names[i-1] = name
+		worksheet.Release()
+	}
+
+	return names, nil
+}
+
 func (o *OleExcel) FindSheet(sheetName string) (Worksheet, error) {
 	worksheets := oleutil.MustGetProperty(o.workbook, "Worksheets").ToIDispatch()
 	defer worksheets.Release()

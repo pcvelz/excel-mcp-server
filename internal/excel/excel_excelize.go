@@ -30,6 +30,11 @@ func (e *ExcelizeExcel) FindSheet(sheetName string) (Worksheet, error) {
 	return &ExcelizeWorksheet{file: e.file, sheetName: sheetName}, nil
 }
 
+func (e *ExcelizeExcel) GetSheetNames() ([]string, error) {
+	sheetList := e.file.GetSheetList()
+	return sheetList, nil
+}
+
 func (w *ExcelizeExcel) Save() error {
 	file, err := os.OpenFile(filepath.Clean(w.file.Path), os.O_WRONLY|os.O_TRUNC|os.O_CREATE, os.ModePerm)
 	if err != nil {

@@ -5,6 +5,7 @@ import (
 )
 
 type Excel interface {
+	GetSheetNames() ([]string, error)
 	FindSheet(sheetName string) (Worksheet, error)
 	Save() error
 }
@@ -17,7 +18,7 @@ type Worksheet interface {
 	GetFormula(cell string) (string, error)
 	GetDimention() (string, error)
 	GetPagingStrategy(pageSize int) (PagingStrategy, error)
-  CapturePicture(captureRange string) (string, error)
+	CapturePicture(captureRange string) (string, error)
 }
 
 func OpenFile(absoluteFilePath string) (Excel, func(), error) {
