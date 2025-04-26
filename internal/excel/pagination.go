@@ -1,10 +1,7 @@
-package tools
+package excel
 
 import (
 	"fmt"
-
-	"github.com/devlights/goxcel"
-	"github.com/go-ole/go-ole/oleutil"
 	"github.com/xuri/excelize/v2"
 )
 
@@ -16,42 +13,34 @@ type PagingStrategy interface {
 	ValidatePagingRange(rangeStr string) error
 }
 
-// FixedSizePagingStrategy は固定サイズでページング範囲を計算する戦略
-type FixedSizePagingStrategy struct {
+// ExcelizeFixedSizePagingStrategy は固定サイズでページング範囲を計算する戦略
+type ExcelizeFixedSizePagingStrategy struct {
 	pageSize  int
-	workbook  *excelize.File
-	sheetName string
+	worksheet *ExcelizeWorksheet
 	dimension string
 }
 
-// NewFixedSizePagingStrategy は新しいFixedSizePagingStrategyインスタンスを生成する
-func NewFixedSizePagingStrategy(pageSize int, workbook *excelize.File, sheetName string) (*FixedSizePagingStrategy, error) {
+// NewExcelizeFixedSizePagingStrategy は新しいFixedSizePagingStrategyインスタンスを生成する
+func NewExcelizeFixedSizePagingStrategy(pageSize int, worksheet *ExcelizeWorksheet) (*ExcelizeFixedSizePagingStrategy, error) {
 	if pageSize <= 0 {
 		pageSize = 5000 // デフォルト値
 	}
 
-	// シート名の検証
-	index, err := workbook.GetSheetIndex(sheetName)
-	if err != nil || index == -1 {
-		return nil, fmt.Errorf("sheet %s not found", sheetName)
-	}
-
 	// シートの次元情報を取得
-	dimension, err := GetSheetDimensionByIterators(workbook, sheetName)
+	dimension, err := worksheet.GetDimention()
 	if err != nil {
 		return nil, err
 	}
 
-	return &FixedSizePagingStrategy{
+	return &ExcelizeFixedSizePagingStrategy{
 		pageSize:  pageSize,
-		workbook:  workbook,
-		sheetName: sheetName,
+		worksheet: worksheet,
 		dimension: dimension,
 	}, nil
 }
 
 // CalculatePagingRanges は固定サイズに基づいてページング範囲のリストを生成する
-func (s *FixedSizePagingStrategy) CalculatePagingRanges() []string {
+func (s *ExcelizeFixedSizePagingStrategy) CalculatePagingRanges() []string {
 	startCol, startRow, endCol, endRow, err := ParseRange(s.dimension)
 	if err != nil {
 		return []string{}
@@ -85,7 +74,7 @@ func (s *FixedSizePagingStrategy) CalculatePagingRanges() []string {
 }
 
 // ValidatePagingRange は指定された範囲が有効かどうかを検証する
-func (s *FixedSizePagingStrategy) ValidatePagingRange(rangeStr string) error {
+func (s *ExcelizeFixedSizePagingStrategy) ValidatePagingRange(rangeStr string) error {
 	startCol, startRow, endCol, endRow, err := ParseRange(rangeStr)
 	if err != nil {
 		return fmt.Errorf("invalid range format: %v", err)
@@ -113,7 +102,7 @@ func (s *FixedSizePagingStrategy) ValidatePagingRange(rangeStr string) error {
 	return nil
 }
 
-func NewGoxcelPagingStrategy(pageSize int, worksheet *goxcel.Worksheet) (PagingStrategy, error) {
+func NewOlePagingStrategy(pageSize int, worksheet *OleWorksheet) (PagingStrategy, error) {
 	if worksheet == nil {
 		return nil, fmt.Errorf("worksheet is nil")
 	}
@@ -133,15 +122,15 @@ func NewGoxcelPagingStrategy(pageSize int, worksheet *goxcel.Worksheet) (PagingS
 	}
 }
 
-// GoxcelFixedSizePagingStrategy は Goxcel を使用した固定サイズでページング範囲を計算する戦略
-type GoxcelFixedSizePagingStrategy struct {
+// OleFixedSizePagingStrategy は Goxcel を使用した固定サイズでページング範囲を計算する戦略
+type OleFixedSizePagingStrategy struct {
 	pageSize  int
-	worksheet *goxcel.Worksheet
+	worksheet *OleWorksheet
 	dimension string
 }
 
 // NewGoxcelFixedSizePagingStrategy は新しい GoxcelFixedSizePagingStrategy インスタンスを生成する
-func NewGoxcelFixedSizePagingStrategy(pageSize int, worksheet *goxcel.Worksheet) (*GoxcelFixedSizePagingStrategy, error) {
+func NewGoxcelFixedSizePagingStrategy(pageSize int, worksheet *OleWorksheet) (*OleFixedSizePagingStrategy, error) {
 	if pageSize <= 0 {
 		pageSize = 5000 // デフォルト値
 	}
@@ -151,26 +140,20 @@ func NewGoxcelFixedSizePagingStrategy(pageSize int, worksheet *goxcel.Worksheet)
 	}
 
 	// UsedRange を使用して使用範囲を取得
-	usedRange, err := worksheet.UsedRange()
+	dimention, err := worksheet.GetDimention()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get used range: %w", err)
+		return nil, fmt.Errorf("failed to get dimention: %w", err)
 	}
 
-	// 範囲の情報を取得
-	address, err := FetchRangeAddress(usedRange)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get range address: %w", err)
-	}
-
-	return &GoxcelFixedSizePagingStrategy{
+	return &OleFixedSizePagingStrategy{
 		pageSize:  pageSize,
 		worksheet: worksheet,
-		dimension: address,
+		dimension: dimention,
 	}, nil
 }
 
 // CalculatePagingRanges は固定サイズに基づいてページング範囲のリストを生成する
-func (s *GoxcelFixedSizePagingStrategy) CalculatePagingRanges() []string {
+func (s *OleFixedSizePagingStrategy) CalculatePagingRanges() []string {
 	startCol, startRow, endCol, endRow, err := ParseRange(s.dimension)
 	if err != nil {
 		return []string{}
@@ -204,7 +187,7 @@ func (s *GoxcelFixedSizePagingStrategy) CalculatePagingRanges() []string {
 }
 
 // ValidatePagingRange は指定された範囲が有効かどうかを検証する
-func (s *GoxcelFixedSizePagingStrategy) ValidatePagingRange(rangeStr string) error {
+func (s *OleFixedSizePagingStrategy) ValidatePagingRange(rangeStr string) error {
 	startCol, startRow, endCol, endRow, err := ParseRange(rangeStr)
 	if err != nil {
 		return fmt.Errorf("invalid range format: %v", err)
@@ -234,11 +217,11 @@ func (s *GoxcelFixedSizePagingStrategy) ValidatePagingRange(rangeStr string) err
 
 // PrintAreaPagingStrategy は印刷範囲とページ区切りに基づいてページング範囲を計算する戦略
 type PrintAreaPagingStrategy struct {
-	worksheet *goxcel.Worksheet
+	worksheet *OleWorksheet
 }
 
 // NewPrintAreaPagingStrategy は新しいPrintAreaPagingStrategyインスタンスを生成する
-func NewPrintAreaPagingStrategy(worksheet *goxcel.Worksheet) (*PrintAreaPagingStrategy, error) {
+func NewPrintAreaPagingStrategy(worksheet *OleWorksheet) (*PrintAreaPagingStrategy, error) {
 	if worksheet == nil {
 		return nil, fmt.Errorf("worksheet is nil")
 	}
@@ -249,51 +232,16 @@ func NewPrintAreaPagingStrategy(worksheet *goxcel.Worksheet) (*PrintAreaPagingSt
 
 // getPrintArea は印刷範囲を取得する
 func (s *PrintAreaPagingStrategy) getPrintArea() (string, error) {
-	ps, err := s.worksheet.PageSetup()
-	if err != nil {
-		return "", fmt.Errorf("failed to get PageSetup: %w", err)
-	}
-	area, err := oleutil.GetProperty(ps.ComObject(), "PrintArea")
-	if err != nil {
-		return "", fmt.Errorf("failed to get PrintArea: %w", err)
-	}
-	address := area.ToString()
-	if address == "" {
-		return "", nil
-	} else {
-		return address, nil
-	}
+	return s.worksheet.PrintArea()
 }
 
 // getHPageBreaksPositions はページ区切りの位置情報を取得する
 func (s *PrintAreaPagingStrategy) getHPageBreaksPositions() ([]int, error) {
-	hpb, err := s.worksheet.HPageBreaks()
+	pageBreaks, err := s.worksheet.HPageBreaks()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get HPageBreaks: %w", err)
 	}
-	count, err := hpb.Count()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get HPageBreaks count: %w", err)
-	}
-
-	positions := make([]int, 0, int(count))
-	for i := 1; i <= int(count); i++ {
-		pageBreak, err := hpb.Item(i)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get HPageBreak item %d: %w", i, err)
-		}
-		location, err := pageBreak.Location()
-		if err != nil {
-			return nil, fmt.Errorf("failed to get HPageBreak row %d: %w", i, err)
-		}
-		row, err := location.Row()
-		if err != nil {
-			return nil, fmt.Errorf("failed to get HPageBreak row %d: %w", i, err)
-		}
-		positions = append(positions, int(row))
-	}
-
-	return positions, nil
+	return pageBreaks, nil
 }
 
 // calculateRangesFromBreaks は印刷範囲とページ区切りから範囲のリストを生成する
