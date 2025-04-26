@@ -19,7 +19,6 @@ func NewExcelizeExcel(file *excelize.File) Excel {
 }
 
 func (e *ExcelizeExcel) FindSheet(sheetName string) (Worksheet, error) {
-	// シートの存在確認
 	index, err := e.file.GetSheetIndex(sheetName)
 	if err != nil {
 		return nil, fmt.Errorf("sheet not found: %s", sheetName)

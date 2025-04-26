@@ -63,7 +63,6 @@ func readSheetData(fileAbsolutePath string, sheetName string, valueRange string,
 		return imcp.NewToolResultZogIssueMap(issues), nil
 	}
 
-	// internal/excel パッケージでワークブックを開く
 	workbook, release, err := excel.OpenFile(fileAbsolutePath)
 	if err != nil {
 		return nil, err
