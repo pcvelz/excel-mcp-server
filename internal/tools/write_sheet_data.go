@@ -104,7 +104,7 @@ func writeSheetData(fileAbsolutePath string, sheetName string, rangeStr string, 
 		return imcp.NewToolResultInvalidArgumentError(err.Error()), nil
 	}
 
-	startCol, startRow, endCol, endRow, err := ParseRange(rangeStr)
+	startCol, startRow, endCol, endRow, err := excel.ParseRange(rangeStr)
 	if err != nil {
 		return imcp.NewToolResultInvalidArgumentError(err.Error()), nil
 	}

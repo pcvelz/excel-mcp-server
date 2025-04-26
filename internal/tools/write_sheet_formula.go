@@ -79,7 +79,7 @@ func writeSheetFormula(fileAbsolutePath string, sheetName string, rangeStr strin
 		return imcp.NewToolResultInvalidArgumentError(fmt.Sprintf("sheet %s not found", sheetName)), nil
 	}
 
-	startCol, startRow, endCol, endRow, err := ParseRange(rangeStr)
+	startCol, startRow, endCol, endRow, err := excel.ParseRange(rangeStr)
 	if err != nil {
 		return imcp.NewToolResultInvalidArgumentError(err.Error()), nil
 	}
