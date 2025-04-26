@@ -3,6 +3,7 @@ package tools
 import (
 	"fmt"
 	"strings"
+  "html"
 
 	"github.com/xuri/excelize/v2"
 
@@ -41,7 +42,7 @@ func createHTMLTable(startCol int, startRow int, endCol int, endRow int, extract
 		for col := startCol; col <= endCol; col++ {
 			axis, _ := excelize.CoordinatesToCellName(col, row)
 			value, _ := extractor(axis)
-			table += fmt.Sprintf("<td>%s</td>", strings.ReplaceAll(value, "\n", "<br>"))
+			table += fmt.Sprintf("<td>%s</td>", strings.ReplaceAll(html.EscapeString(value), "\n", "<br>"))
 		}
 		table += "</tr>\n"
 	}
