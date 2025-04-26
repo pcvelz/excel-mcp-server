@@ -3,13 +3,14 @@ package tools
 import (
 	"context"
 	"fmt"
+	"html"
 	"strings"
 
 	z "github.com/Oudwins/zog"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
-	imcp "github.com/negokaz/excel-mcp-server/internal/mcp"
 	excel "github.com/negokaz/excel-mcp-server/internal/excel"
+	imcp "github.com/negokaz/excel-mcp-server/internal/mcp"
 )
 
 type ReadSheetFormulaArguments struct {
@@ -123,20 +124,20 @@ func readSheetFormula(fileAbsolutePath string, sheetName string, valueRange stri
 		return nil, err
 	}
 
-	html := "<h2>Sheet Formulas</h2>\n"
-	html += *table + "\n"
-	html += "<h2>Metadata</h2>\n"
-	html += "<ul>\n"
-	html += fmt.Sprintf("<li>sheet name: %s</li>\n", sheetName)
-	html += fmt.Sprintf("<li>read range: %s</li>\n", currentRange)
-	html += "</ul>\n"
-	html += "<h2>Notice</h2>\n"
+	result := "<h2>Sheet Formulas</h2>\n"
+	result += *table + "\n"
+	result += "<h2>Metadata</h2>\n"
+	result += "<ul>\n"
+	result += fmt.Sprintf("<li>sheet name: %s</li>\n", html.EscapeString(sheetName))
+	result += fmt.Sprintf("<li>read range: %s</li>\n", currentRange)
+	result += "</ul>\n"
+	result += "<h2>Notice</h2>\n"
 	if len(remainingRanges) > 0 {
-		html += "<p>This sheet has more some ranges.</p>\n"
-		html += "<p>To read the next range, you should specify 'range' and 'knownPagingRanges' arguments as follows.</p>\n"
-		html += fmt.Sprintf("<code>{ \"range\": \"%s\", \"knownPagingRanges\": [%s] }</code>\n", remainingRanges[0], "\""+strings.Join(append(knownPagingRanges, currentRange), "\", \"")+"\"")
+		result += "<p>This sheet has more some ranges.</p>\n"
+		result += "<p>To read the next range, you should specify 'range' and 'knownPagingRanges' arguments as follows.</p>\n"
+		result += fmt.Sprintf("<code>{ \"range\": \"%s\", \"knownPagingRanges\": [%s] }</code>\n", remainingRanges[0], "\""+strings.Join(append(knownPagingRanges, currentRange), "\", \"")+"\"")
 	} else {
-		html += "<p>All ranges have been read.</p>\n"
+		result += "<p>All ranges have been read.</p>\n"
 	}
-	return mcp.NewToolResultText(html), nil
+	return mcp.NewToolResultText(result), nil
 }
