@@ -76,7 +76,7 @@ func writeSheetFormula(fileAbsolutePath string, sheetName string, rangeStr strin
 
 	worksheet, err := book.FindSheet(sheetName)
 	if err != nil {
-		return imcp.NewToolResultInvalidArgumentError(fmt.Sprintf("sheet %s not found", sheetName)), nil
+		return imcp.NewToolResultInvalidArgumentError(err.Error()), nil
 	}
 
 	startCol, startRow, endCol, endRow, err := excel.ParseRange(rangeStr)

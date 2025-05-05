@@ -68,20 +68,10 @@ func readSheetImage(fileAbsolutePath string, sheetName string, rangeStr string, 
 			return imcp.NewToolResultInvalidArgumentError(fmt.Errorf("failed to open workbook: %w", err).Error()), nil
 		}
 	}
-	// シート取得
-	var worksheet excel.Worksheet
-	if sheetName == "" {
-		// シート名未指定時は "Sheet1" を仮定
-		worksheet, err = workbook.FindSheet("Sheet1")
-		if err != nil {
-			return imcp.NewToolResultInvalidArgumentError("sheet not found"), nil
-		}
-		sheetName, _ = worksheet.Name()
-	} else {
-		worksheet, err = workbook.FindSheet(sheetName)
-		if err != nil {
-			return imcp.NewToolResultInvalidArgumentError(fmt.Sprintf("sheet %s not found", sheetName)), nil
-		}
+
+	worksheet, err := workbook.FindSheet(sheetName)
+	if err != nil {
+		return imcp.NewToolResultInvalidArgumentError(err.Error()), nil
 	}
 
 	pagingStrategy, err := worksheet.GetPagingStrategy(5000)

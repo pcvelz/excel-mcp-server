@@ -70,20 +70,9 @@ func readSheetData(fileAbsolutePath string, sheetName string, valueRange string,
 	}
 	defer release()
 
-	// シート取得
-	var worksheet excel.Worksheet
-	if sheetName == "" {
-		// シート名未指定時は "Sheet1" を仮定
-		worksheet, err = workbook.FindSheet("Sheet1")
-		if err != nil {
-			return imcp.NewToolResultInvalidArgumentError("sheet not found"), nil
-		}
-		sheetName, _ = worksheet.Name()
-	} else {
-		worksheet, err = workbook.FindSheet(sheetName)
-		if err != nil {
-			return imcp.NewToolResultInvalidArgumentError(fmt.Sprintf("sheet %s not found", sheetName)), nil
-		}
+	worksheet, err := workbook.FindSheet(sheetName)
+	if err != nil {
+		return imcp.NewToolResultInvalidArgumentError(err.Error()), nil
 	}
 
 	// ページング戦略の初期化
