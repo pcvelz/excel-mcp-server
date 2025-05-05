@@ -2,12 +2,13 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 
 	z "github.com/Oudwins/zog"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
+	"github.com/negokaz/excel-mcp-server/internal/excel"
 	imcp "github.com/negokaz/excel-mcp-server/internal/mcp"
-  "github.com/negokaz/excel-mcp-server/internal/excel"
 )
 
 type ReadSheetNameArguments struct {
@@ -39,21 +40,19 @@ func handleReadSheetNames(ctx context.Context, request mcp.CallToolRequest) (*mc
 
 func readSheetNames(fileAbsolutePath string) (*mcp.CallToolResult, error) {
 	workbook, release, err := excel.OpenFile(fileAbsolutePath)
-  defer release()
+	defer release()
 	if err != nil {
 		return nil, err
 	}
 
 	sheetList, err := workbook.GetSheetNames()
-  if err != nil {
-    return nil, err
-  }
-	var sheetNames []mcp.Content
-	for _, name := range sheetList {
-		sheetNames = append(sheetNames, mcp.NewTextContent(name))
+	if err != nil {
+		return nil, err
+	}
+	jsonBytes, err := json.MarshalIndent(sheetList, "", "  ")
+	if err != nil {
+		return nil, err
 	}
 
-	return &mcp.CallToolResult{
-		Content: sheetNames,
-	}, nil
+	return mcp.NewToolResultText(string(jsonBytes)), nil
 }
