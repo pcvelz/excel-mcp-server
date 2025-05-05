@@ -44,7 +44,7 @@ func OpenFile(absoluteFilePath string) (Excel, func(), error) {
 	// If OLE fails, try Excelize
 	workbook, err := excelize.OpenFile(absoluteFilePath)
 	if err != nil {
-		return nil, nil, err
+		return nil, func(){}, err
 	}
 	excelize := NewExcelizeExcel(workbook)
 	return excelize, func() {
