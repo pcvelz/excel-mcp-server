@@ -2,12 +2,15 @@ package tools
 
 import (
 	"fmt"
+	"html"
+	"path/filepath"
 	"strings"
-  "html"
 
 	"github.com/xuri/excelize/v2"
 
 	"github.com/negokaz/excel-mcp-server/internal/excel"
+
+	z "github.com/Oudwins/zog"
 )
 
 func CreateHTMLTableOfValues(worksheet excel.Worksheet, startCol int, startRow int, endCol int, endRow int) (*string, error) {
@@ -49,4 +52,14 @@ func createHTMLTable(startCol int, startRow int, endCol int, endRow int, extract
 
 	table += "</table>"
 	return &table, nil
+}
+
+func AbsolutePathTest() z.Test[*string] {
+	return z.Test[*string]{
+		Func: func(path *string, ctx z.Ctx) {
+			if !filepath.IsAbs(*path) {
+				ctx.AddIssue(ctx.Issue().SetMessage(fmt.Sprintf("Path '%s' is not absolute", *path)))
+			}
+		},
+	}
 }
