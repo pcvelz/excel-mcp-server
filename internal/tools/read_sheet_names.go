@@ -16,7 +16,7 @@ type ReadSheetNameArguments struct {
 }
 
 var readSheetNameArgumentsSchema = z.Struct(z.Schema{
-	"fileAbsolutePath": z.String().Required(),
+	"fileAbsolutePath": z.String().Test(AbsolutePathTest()).Required(),
 })
 
 func AddReadSheetNamesTool(server *server.MCPServer) {

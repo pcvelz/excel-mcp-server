@@ -21,7 +21,7 @@ type ReadSheetFormulaArguments struct {
 }
 
 var readSheetFormulaArgumentsSchema = z.Struct(z.Schema{
-	"fileAbsolutePath":  z.String().Required(),
+	"fileAbsolutePath":  z.String().Test(AbsolutePathTest()).Required(),
 	"sheetName":         z.String().Required(),
 	"range":             z.String(),
 	"knownPagingRanges": z.Slice(z.String()),

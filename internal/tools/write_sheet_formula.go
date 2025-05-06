@@ -21,7 +21,7 @@ type WriteSheetFormulaArguments struct {
 }
 
 var writeSheetFormulaArgumentsSchema = z.Struct(z.Schema{
-	"fileAbsolutePath": z.String().Required(),
+	"fileAbsolutePath": z.String().Test(AbsolutePathTest()).Required(),
 	"sheetName":        z.String().Required(),
 	"newSheet":         z.Bool().Required().Default(false),
 	"range":            z.String().Required(),
