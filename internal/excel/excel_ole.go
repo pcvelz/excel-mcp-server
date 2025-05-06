@@ -116,6 +116,53 @@ func (o *OleExcel) FindSheet(sheetName string) (Worksheet, error) {
 	return nil, fmt.Errorf("sheet not found: %s", sheetName)
 }
 
+func (o *OleExcel) CreateNewSheet(sheetName string) error {
+	activeWorksheet := oleutil.MustGetProperty(o.workbook, "ActiveSheet").ToIDispatch()
+	defer activeWorksheet.Release()
+	activeWorksheetIndex := oleutil.MustGetProperty(activeWorksheet, "Index").Val
+	worksheets := oleutil.MustGetProperty(o.workbook, "Worksheets").ToIDispatch()
+	defer worksheets.Release()
+
+	_, err := oleutil.CallMethod(worksheets, "Add", nil, activeWorksheet)
+	if err != nil {
+		return err
+	}
+
+	worksheet := oleutil.MustGetProperty(worksheets, "Item", activeWorksheetIndex+1).ToIDispatch()
+	defer worksheet.Release()
+
+	_, err = oleutil.PutProperty(worksheet, "Name", sheetName)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (o *OleExcel) CopySheet(srcSheetName string, destSheetName string) error {
+	worksheets := oleutil.MustGetProperty(o.workbook, "Worksheets").ToIDispatch()
+	defer worksheets.Release()
+
+	srcSheet := oleutil.MustGetProperty(worksheets, "Item", srcSheetName).ToIDispatch()
+	defer srcSheet.Release()
+	srcSheetIndex := oleutil.MustGetProperty(srcSheet, "Index").Val
+
+	_, err := oleutil.CallMethod(srcSheet, "Copy", nil, srcSheet)
+	if err != nil {
+		return err
+	}
+
+	destSheet := oleutil.MustGetProperty(worksheets, "Item", srcSheetIndex+1).ToIDispatch()
+	defer destSheet.Release()
+
+	_, err = oleutil.PutProperty(destSheet, "Name", destSheetName)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (o *OleExcel) Save() error {
 	_, err := oleutil.CallMethod(o.workbook, "Save")
 	if err != nil {

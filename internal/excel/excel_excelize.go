@@ -29,6 +29,36 @@ func (e *ExcelizeExcel) FindSheet(sheetName string) (Worksheet, error) {
 	return &ExcelizeWorksheet{file: e.file, sheetName: sheetName}, nil
 }
 
+func (e *ExcelizeExcel) CreateNewSheet(sheetName string) error {
+	_, err := e.file.NewSheet(sheetName)
+	if err != nil {
+		return fmt.Errorf("failed to create new sheet: %w", err)
+	}
+	return nil
+}
+
+func (e *ExcelizeExcel) CopySheet(srcSheetName string, destSheetName string) error {
+	srcIndex, err := e.file.GetSheetIndex(srcSheetName)
+	if srcIndex < 0 {
+		return fmt.Errorf("source sheet not found: %s", srcSheetName)
+	}
+	if err != nil {
+		return err
+	}
+	destIndex, err := e.file.NewSheet(destSheetName)
+	if err != nil {
+		return fmt.Errorf("failed to create destination sheet: %w", err)
+	}
+	if err := e.file.CopySheet(srcIndex, destIndex); err != nil {
+		return fmt.Errorf("failed to copy sheet: %w", err)
+	}
+	srcNext := e.file.GetSheetList()[srcIndex+1]
+	if srcNext != srcSheetName {
+		e.file.MoveSheet(destSheetName, srcNext)
+	}
+	return nil
+}
+
 func (e *ExcelizeExcel) GetSheetNames() ([]string, error) {
 	sheetList := e.file.GetSheetList()
 	return sheetList, nil

@@ -9,6 +9,10 @@ type Excel interface {
 	GetSheetNames() ([]string, error)
 	// FindSheet finds a sheet by its name and returns a Worksheet.
 	FindSheet(sheetName string) (Worksheet, error)
+	// CreateNewSheet creates a new sheet with the specified name.
+	CreateNewSheet(sheetName string) error
+	// CopySheet copies a sheet from one to another.
+	CopySheet(srcSheetName, destSheetName string) error
 	// Save saves the Excel file.
 	Save() error
 }
@@ -44,7 +48,7 @@ func OpenFile(absoluteFilePath string) (Excel, func(), error) {
 	// If OLE fails, try Excelize
 	workbook, err := excelize.OpenFile(absoluteFilePath)
 	if err != nil {
-		return nil, func(){}, err
+		return nil, func() {}, err
 	}
 	excelize := NewExcelizeExcel(workbook)
 	return excelize, func() {
