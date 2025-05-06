@@ -136,6 +136,8 @@ Write data to the Excel sheet.
     - Absolute path to the Excel file
 - `sheetName`
     - Sheet name in the Excel file
+- `newSheet`
+    - Create a new sheet if true, otherwise write to the existing sheet
 - `range`
     - Range of cells to read in the Excel sheet (e.g., "A1:C10").
 - `data`
@@ -150,12 +152,26 @@ Write formulas to the Excel sheet.
     - Absolute path to the Excel file
 - `sheetName`
     - Sheet name in the Excel file
+- `newSheet`
+    - Create a new sheet if true, otherwise write to the existing sheet
 - `range`
     - Range of cells to read in the Excel sheet (e.g., "A1:C10").
 - `formulas`
     - Formulas to write to the Excel sheet (e.g., "=A1+B1")
 
-<h2 id="tools">Configuration</h2>
+### `copy_sheet`
+
+Create a copy of specified sheet.
+
+**Arguments:**
+- `fileAbsolutePath`
+    - Absolute path to the Excel file
+- `srcSheetName`
+    - Source sheet name in the Excel file
+- `dstSheetName`
+    - Sheet name to be copied
+
+<h2 id="configuration">Configuration</h2>
 
 You can change the MCP Server behaviors by the following environment variables:
 
