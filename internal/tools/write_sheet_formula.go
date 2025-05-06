@@ -7,14 +7,15 @@ import (
 	z "github.com/Oudwins/zog"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
-	imcp "github.com/negokaz/excel-mcp-server/internal/mcp"
 	"github.com/negokaz/excel-mcp-server/internal/excel"
+	imcp "github.com/negokaz/excel-mcp-server/internal/mcp"
 	"github.com/xuri/excelize/v2"
 )
 
 type WriteSheetFormulaArguments struct {
 	FileAbsolutePath string     `zog:"fileAbsolutePath"`
 	SheetName        string     `zog:"sheetName"`
+	NewSheet         bool       `zog:"newSheet"`
 	Range            string     `zog:"range"`
 	Formulas         [][]string `zog:"formulas"`
 }
@@ -22,6 +23,7 @@ type WriteSheetFormulaArguments struct {
 var writeSheetFormulaArgumentsSchema = z.Struct(z.Schema{
 	"fileAbsolutePath": z.String().Required(),
 	"sheetName":        z.String().Required(),
+	"newSheet":         z.Bool().Required().Default(false),
 	"range":            z.String().Required(),
 	"formulas":         z.Slice(z.Slice(z.String().HasPrefix("="))).Required(),
 })
@@ -36,6 +38,10 @@ func AddWriteSheetFormulaTool(server *server.MCPServer) {
 		mcp.WithString("sheetName",
 			mcp.Required(),
 			mcp.Description("Sheet name in the Excel file"),
+		),
+		mcp.WithString("newSheet",
+			mcp.Required(),
+			mcp.Description("Create a new sheet if true, otherwise write to the existing sheet"),
 		),
 		mcp.WithString("range",
 			mcp.Required(),
@@ -64,15 +70,21 @@ func handleWriteSheetFormula(ctx context.Context, request mcp.CallToolRequest) (
 	if len(issues) != 0 {
 		return imcp.NewToolResultZogIssueMap(issues), nil
 	}
-	return writeSheetFormula(args.FileAbsolutePath, args.SheetName, args.Range, args.Formulas)
+	return writeSheetFormula(args.FileAbsolutePath, args.SheetName, args.NewSheet, args.Range, args.Formulas)
 }
 
-func writeSheetFormula(fileAbsolutePath string, sheetName string, rangeStr string, formulas [][]string) (*mcp.CallToolResult, error) {
+func writeSheetFormula(fileAbsolutePath string, sheetName string, newSheet bool, rangeStr string, formulas [][]string) (*mcp.CallToolResult, error) {
 	book, releaseFn, err := excel.OpenFile(fileAbsolutePath)
 	if err != nil {
 		return nil, err
 	}
 	defer releaseFn()
+
+	if newSheet {
+		if err := book.CreateNewSheet(sheetName); err != nil {
+			return nil, err
+		}
+	}
 
 	worksheet, err := book.FindSheet(sheetName)
 	if err != nil {
@@ -126,4 +138,3 @@ func writeSheetFormula(fileAbsolutePath string, sheetName string, rangeStr strin
 
 	return mcp.NewToolResultText(html), nil
 }
-
