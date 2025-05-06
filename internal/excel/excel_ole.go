@@ -139,23 +139,31 @@ func (o *OleExcel) CreateNewSheet(sheetName string) error {
 	return nil
 }
 
-func (o *OleExcel) CopySheet(srcSheetName string, destSheetName string) error {
+func (o *OleExcel) CopySheet(srcSheetName string, dstSheetName string) error {
 	worksheets := oleutil.MustGetProperty(o.workbook, "Worksheets").ToIDispatch()
 	defer worksheets.Release()
 
-	srcSheet := oleutil.MustGetProperty(worksheets, "Item", srcSheetName).ToIDispatch()
+	srcSheetVariant, err := oleutil.GetProperty(worksheets, "Item", srcSheetName)
+	if err != nil {
+		return fmt.Errorf("faild to get sheet: %w", err)
+	}
+	srcSheet := srcSheetVariant.ToIDispatch()
 	defer srcSheet.Release()
 	srcSheetIndex := oleutil.MustGetProperty(srcSheet, "Index").Val
 
-	_, err := oleutil.CallMethod(srcSheet, "Copy", nil, srcSheet)
+	_, err = oleutil.CallMethod(srcSheet, "Copy", nil, srcSheet)
 	if err != nil {
 		return err
 	}
 
-	destSheet := oleutil.MustGetProperty(worksheets, "Item", srcSheetIndex+1).ToIDispatch()
-	defer destSheet.Release()
+	dstSheetVariant, err := oleutil.GetProperty(worksheets, "Item", srcSheetIndex+1)
+	if err != nil {
+		return fmt.Errorf("failed to get copied sheet: %w", err)
+	}
+	dstSheet := dstSheetVariant.ToIDispatch()
+	defer dstSheet.Release()
 
-	_, err = oleutil.PutProperty(destSheet, "Name", destSheetName)
+	_, err = oleutil.PutProperty(dstSheet, "Name", dstSheetName)
 	if err != nil {
 		return err
 	}

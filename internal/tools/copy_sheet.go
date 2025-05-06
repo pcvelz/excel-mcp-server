@@ -57,6 +57,15 @@ func copySheet(fileAbsolutePath string, srcSheetName string, dstSheetName string
 	}
 	defer release()
 
+	srcSheet, err := workbook.FindSheet(srcSheetName)
+	if err != nil {
+		return imcp.NewToolResultInvalidArgumentError(err.Error()), nil
+	}
+	srcSheetName, err = srcSheet.Name()
+	if err != nil {
+		return nil, err
+	}
+
 	if err := workbook.CopySheet(srcSheetName, dstSheetName); err != nil {
 		return nil, err
 	}
