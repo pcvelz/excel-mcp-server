@@ -15,6 +15,7 @@ import (
 type WriteSheetDataArguments struct {
 	FileAbsolutePath string     `zog:"fileAbsolutePath"`
 	SheetName        string     `zog:"sheetName"`
+	NewSheet         bool       `zog:"newSheet"`
 	Range            string     `zog:"range"`
 	Data             [][]string `zog:"data"`
 }
@@ -22,6 +23,7 @@ type WriteSheetDataArguments struct {
 var writeSheetDataArgumentsSchema = z.Struct(z.Schema{
 	"fileAbsolutePath": z.String().Required(),
 	"sheetName":        z.String().Required(),
+	"newSheet":         z.Bool().Required().Default(false),
 	"range":            z.String().Required(),
 	"data":             z.Slice(z.Slice(z.String())).Required(),
 })
@@ -36,6 +38,10 @@ func AddWriteSheetDataTool(server *server.MCPServer) {
 		mcp.WithString("sheetName",
 			mcp.Required(),
 			mcp.Description("Sheet name in the Excel file"),
+		),
+		mcp.WithString("newSheet",
+			mcp.Required(),
+			mcp.Description("Create a new sheet if true, otherwise write to the existing sheet"),
 		),
 		mcp.WithString("range",
 			mcp.Required(),
@@ -88,15 +94,21 @@ func handleWriteSheetData(ctx context.Context, request mcp.CallToolRequest) (*mc
 		data[i] = value
 	}
 
-	return writeSheetData(args.FileAbsolutePath, args.SheetName, args.Range, data)
+	return writeSheetData(args.FileAbsolutePath, args.SheetName, args.NewSheet, args.Range, data)
 }
 
-func writeSheetData(fileAbsolutePath string, sheetName string, rangeStr string, data [][]any) (*mcp.CallToolResult, error) {
+func writeSheetData(fileAbsolutePath string, sheetName string, newSheet bool, rangeStr string, data [][]any) (*mcp.CallToolResult, error) {
 	workbook, closeFn, err := excel.OpenFile(fileAbsolutePath)
 	if err != nil {
 		return nil, err
 	}
 	defer closeFn()
+
+	if newSheet {
+		if err := workbook.CreateNewSheet(sheetName); err != nil {
+			return nil, err
+		}
+	}
 
 	// シートの取得
 	worksheet, err := workbook.FindSheet(sheetName)
