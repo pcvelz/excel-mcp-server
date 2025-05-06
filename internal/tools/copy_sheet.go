@@ -26,7 +26,7 @@ var copySheetArgumentsSchema = z.Struct(z.Schema{
 
 func AddCopySheetTool(server *server.MCPServer) {
 	server.AddTool(mcp.NewTool("copy_sheet",
-		mcp.WithDescription("Create a copy of specified sheet."),
+		mcp.WithDescription("Copy existing sheet to a new sheet"),
 		mcp.WithString("fileAbsolutePath",
 			mcp.Required(),
 			mcp.Description("Absolute path to the Excel file"),

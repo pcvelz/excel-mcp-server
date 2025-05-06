@@ -161,7 +161,7 @@ Write formulas to the Excel sheet.
 
 ### `copy_sheet`
 
-Create a copy of specified sheet.
+Copy existing sheet to a new sheet
 
 **Arguments:**
 - `fileAbsolutePath`
