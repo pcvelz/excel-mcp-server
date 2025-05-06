@@ -9,14 +9,13 @@ A Model Context Protocol (MCP) server that reads and writes MS Excel data.
 
 ## Features
 
-- Read text values from MS Excel file
-- Write text values to MS Excel file
-- Read formulas from MS Excel file
-- Write formulas to MS Excel file
+- Read/Write text values
+- Read/Write formulas
+- Create new sheets
 
 **🪟Windows only:**
-- Live editing MS Excel file
-- Capture screen image from MS Excel file
+- Live editing
+- Capture screen image from a sheet
 
 For more details, see the [tools](#tools) section.
 
