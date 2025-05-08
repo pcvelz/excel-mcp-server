@@ -64,19 +64,18 @@ func (e *ExcelizeExcel) GetSheetNames() ([]string, error) {
 	return sheetList, nil
 }
 
+// SaveExcelize saves the Excel file to the specified path.
+// Excelize's Save method restricts the file path length to 207 characters,
+// but since this limitation has been relaxed in some environments,
+// we ignore this restriction.
+// https://github.com/qax-os/excelize/blob/v2.9.0/file.go#L71-L73
 func (w *ExcelizeExcel) Save() error {
 	file, err := os.OpenFile(filepath.Clean(w.file.Path), os.O_WRONLY|os.O_TRUNC|os.O_CREATE, os.ModePerm)
 	if err != nil {
 		return err
 	}
 	defer file.Close()
-	if err := w.file.Write(file); err != nil {
-		return err
-	}
-	if err := w.file.Save(); err != nil {
-		return err
-	}
-	return nil
+	return w.file.Write(file)
 }
 
 type ExcelizeWorksheet struct {
