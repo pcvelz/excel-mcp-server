@@ -76,7 +76,7 @@ npx -y @smithery/cli install @negokaz/excel-mcp-server --client claude
 
 <h2 id="tools">Tools</h2>
 
-### `read_sheet_names`
+### `excel_describe_sheets`
 
 List all sheet names in an Excel file.
 
@@ -84,9 +84,25 @@ List all sheet names in an Excel file.
 - `fileAbsolutePath`
     - Absolute path to the Excel file
 
-### `read_sheet_data`
+### `excel_read_sheet`
 
-Read data from Excel sheet with pagination.
+Read values from Excel sheet with pagination.
+
+**Arguments:**
+- `fileAbsolutePath`
+    - Absolute path to the Excel file
+- `sheetName`
+    - Sheet name in the Excel file
+- `range`
+    - Range of cells to read in the Excel sheet (e.g., "A1:C10"). [default: first paging range]
+- `knownPagingRanges`
+    - List of already read paging ranges
+- `showFormula`
+    - Show formula instead of value
+
+### `excel_screen_capture`
+
+**[Windows only]** Take a screenshot of the Excel sheet with pagination.
 
 **Arguments:**
 - `fileAbsolutePath`
@@ -98,37 +114,9 @@ Read data from Excel sheet with pagination.
 - `knownPagingRanges`
     - List of already read paging ranges
 
-### `read_sheet_formula`
+### `excel_write_to_sheet`
 
-Read formulas from Excel sheet with pagination.
-
-**Arguments:**
-- `fileAbsolutePath`
-    - Absolute path to the Excel file
-- `sheetName`
-    - Sheet name in the Excel file
-- `range`
-    - Range of cells to read in the Excel sheet (e.g., "A1:C10"). [default: first paging range]
-- `knownPagingRanges`
-    - List of already read paging ranges
-
-### `read_sheet_image`
-
-**[Windows only]** Read data as an image from the Excel sheet with pagination.
-
-**Arguments:**
-- `fileAbsolutePath`
-    - Absolute path to the Excel file
-- `sheetName`
-    - Sheet name in the Excel file
-- `range`
-    - Range of cells to read in the Excel sheet (e.g., "A1:C10"). [default: first paging range]
-- `knownPagingRanges`
-    - List of already read paging ranges
-
-### `write_sheet_data`
-
-Write data to the Excel sheet.
+Write values to the Excel sheet.
 
 **Arguments:**
 - `fileAbsolutePath`
@@ -139,26 +127,10 @@ Write data to the Excel sheet.
     - Create a new sheet if true, otherwise write to the existing sheet
 - `range`
     - Range of cells to read in the Excel sheet (e.g., "A1:C10").
-- `data`
-    - Data to write to the Excel sheet
+- `values`
+    - Values to write to the Excel sheet. If the value is a formula, it should start with "="
 
-### `write_sheet_formula`
-
-Write formulas to the Excel sheet.
-
-**Arguments:**
-- `fileAbsolutePath`
-    - Absolute path to the Excel file
-- `sheetName`
-    - Sheet name in the Excel file
-- `newSheet`
-    - Create a new sheet if true, otherwise write to the existing sheet
-- `range`
-    - Range of cells to read in the Excel sheet (e.g., "A1:C10").
-- `formulas`
-    - Formulas to write to the Excel sheet (e.g., "=A1+B1")
-
-### `copy_sheet`
+### `excel_copy_sheet`
 
 Copy existing sheet to a new sheet
 

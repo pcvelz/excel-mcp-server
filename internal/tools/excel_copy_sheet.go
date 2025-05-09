@@ -12,20 +12,20 @@ import (
 	imcp "github.com/negokaz/excel-mcp-server/internal/mcp"
 )
 
-type CopySheetArguments struct {
+type ExcelCopySheetArguments struct {
 	FileAbsolutePath string `zog:"fileAbsolutePath"`
 	SrcSheetName     string `zog:"srcSheetName"`
 	DstSheetName     string `zog:"dstSheetName"`
 }
 
-var copySheetArgumentsSchema = z.Struct(z.Schema{
+var excelCopySheetArgumentsSchema = z.Struct(z.Schema{
 	"fileAbsolutePath": z.String().Required(),
 	"srcSheetName":     z.String().Required(),
 	"dstSheetName":     z.String().Required(),
 })
 
-func AddCopySheetTool(server *server.MCPServer) {
-	server.AddTool(mcp.NewTool("copy_sheet",
+func AddExcelCopySheetTool(server *server.MCPServer) {
+	server.AddTool(mcp.NewTool("excel_copy_sheet",
 		mcp.WithDescription("Copy existing sheet to a new sheet"),
 		mcp.WithString("fileAbsolutePath",
 			mcp.Required(),
@@ -43,8 +43,8 @@ func AddCopySheetTool(server *server.MCPServer) {
 }
 
 func handleCopySheet(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	args := CopySheetArguments{}
-	if issues := copySheetArgumentsSchema.Parse(request.Params.Arguments, &args); len(issues) != 0 {
+	args := ExcelCopySheetArguments{}
+	if issues := excelCopySheetArgumentsSchema.Parse(request.Params.Arguments, &args); len(issues) != 0 {
 		return imcp.NewToolResultZogIssueMap(issues), nil
 	}
 	return copySheet(args.FileAbsolutePath, args.SrcSheetName, args.DstSheetName)

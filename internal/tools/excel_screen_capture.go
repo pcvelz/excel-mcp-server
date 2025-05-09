@@ -12,23 +12,23 @@ import (
 	imcp "github.com/negokaz/excel-mcp-server/internal/mcp"
 )
 
-type ReadSheetImageArguments struct {
+type ExcelScreenCaptureArguments struct {
 	FileAbsolutePath  string   `zog:"fileAbsolutePath"`
 	SheetName         string   `zog:"sheetName"`
 	Range             string   `zog:"range"`
 	KnownPagingRanges []string `zog:"knownPagingRanges"`
 }
 
-var readSheetImageArgumentsSchema = z.Struct(z.Schema{
+var ExcelScreenCaptureArgumentsSchema = z.Struct(z.Schema{
 	"fileAbsolutePath":  z.String().Test(AbsolutePathTest()).Required(),
 	"sheetName":         z.String().Required(),
 	"range":             z.String(),
 	"knownPagingRanges": z.Slice(z.String()),
 })
 
-func AddReadSheetImageTool(server *server.MCPServer) {
-	server.AddTool(mcp.NewTool("read_sheet_image",
-		mcp.WithDescription("[Windows only] Read data as an image from the Excel sheet with pagination."),
+func AddExcelScreenCaptureTool(server *server.MCPServer) {
+	server.AddTool(mcp.NewTool("excel_screen_capture",
+		mcp.WithDescription("[Windows only] Take a screenshot of the Excel sheet with pagination."),
 		mcp.WithString("fileAbsolutePath",
 			mcp.Required(),
 			mcp.Description("Absolute path to the Excel file"),
@@ -46,12 +46,12 @@ func AddReadSheetImageTool(server *server.MCPServer) {
 				"type": "string",
 			}),
 		),
-	), handleReadSheetImage)
+	), handleScreenCapture)
 }
 
-func handleReadSheetImage(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	args := ReadSheetImageArguments{}
-	issues := readSheetImageArgumentsSchema.Parse(request.Params.Arguments, &args)
+func handleScreenCapture(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	args := ExcelScreenCaptureArguments{}
+	issues := ExcelScreenCaptureArgumentsSchema.Parse(request.Params.Arguments, &args)
 	if len(issues) != 0 {
 		return imcp.NewToolResultZogIssueMap(issues), nil
 	}
