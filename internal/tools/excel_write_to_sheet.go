@@ -12,25 +12,25 @@ import (
 	"github.com/xuri/excelize/v2"
 )
 
-type WriteSheetDataArguments struct {
+type ExcelWriteToSheetArguments struct {
 	FileAbsolutePath string     `zog:"fileAbsolutePath"`
 	SheetName        string     `zog:"sheetName"`
 	NewSheet         bool       `zog:"newSheet"`
 	Range            string     `zog:"range"`
-	Data             [][]string `zog:"data"`
+	Values           [][]string `zog:"values"`
 }
 
-var writeSheetDataArgumentsSchema = z.Struct(z.Schema{
+var excelWriteToSheetArgumentsSchema = z.Struct(z.Schema{
 	"fileAbsolutePath": z.String().Test(AbsolutePathTest()).Required(),
 	"sheetName":        z.String().Required(),
 	"newSheet":         z.Bool().Required().Default(false),
 	"range":            z.String().Required(),
-	"data":             z.Slice(z.Slice(z.String())).Required(),
+	"values":           z.Slice(z.Slice(z.String())).Required(),
 })
 
-func AddWriteSheetDataTool(server *server.MCPServer) {
-	server.AddTool(mcp.NewTool("write_sheet_data",
-		mcp.WithDescription("Write data to the Excel sheet"),
+func AddExcelWriteToSheetTool(server *server.MCPServer) {
+	server.AddTool(mcp.NewTool("excel_write_to_sheet",
+		mcp.WithDescription("Write values to the Excel sheet"),
 		mcp.WithString("fileAbsolutePath",
 			mcp.Required(),
 			mcp.Description("Absolute path to the Excel file"),
@@ -39,7 +39,7 @@ func AddWriteSheetDataTool(server *server.MCPServer) {
 			mcp.Required(),
 			mcp.Description("Sheet name in the Excel file"),
 		),
-		mcp.WithString("newSheet",
+		mcp.WithBoolean("newSheet",
 			mcp.Required(),
 			mcp.Description("Create a new sheet if true, otherwise write to the existing sheet"),
 		),
@@ -47,9 +47,9 @@ func AddWriteSheetDataTool(server *server.MCPServer) {
 			mcp.Required(),
 			mcp.Description("Range of cells in the Excel sheet (e.g., \"A1:C10\")"),
 		),
-		mcp.WithArray("data",
+		mcp.WithArray("values",
 			mcp.Required(),
-			mcp.Description("Data to write to the Excel sheet"),
+			mcp.Description("Values to write to the Excel sheet. If the value is a formula, it should start with \"=\""),
 			mcp.Items(map[string]any{
 				"type": "array",
 				"items": map[string]any{
@@ -70,34 +70,34 @@ func AddWriteSheetDataTool(server *server.MCPServer) {
 				},
 			}),
 		),
-	), handleWriteSheetData)
+	), handleWriteToSheet)
 }
 
-func handleWriteSheetData(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	args := WriteSheetDataArguments{}
-	issues := writeSheetDataArgumentsSchema.Parse(request.Params.Arguments, &args)
+func handleWriteToSheet(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	args := ExcelWriteToSheetArguments{}
+	issues := excelWriteToSheetArgumentsSchema.Parse(request.Params.Arguments, &args)
 	if len(issues) != 0 {
 		return imcp.NewToolResultZogIssueMap(issues), nil
 	}
 
 	// zog が any type のスキーマをサポートしていないため、自力で実装
-	dataArg, ok := request.Params.Arguments["data"].([]any)
+	valuesArg, ok := request.Params.Arguments["values"].([]any)
 	if !ok {
-		return imcp.NewToolResultInvalidArgumentError("data must be a 2D array"), nil
+		return imcp.NewToolResultInvalidArgumentError("values must be a 2D array"), nil
 	}
-	data := make([][]any, len(dataArg))
-	for i, v := range dataArg {
+	values := make([][]any, len(valuesArg))
+	for i, v := range valuesArg {
 		value, ok := v.([]any)
 		if !ok {
-			return imcp.NewToolResultInvalidArgumentError("data must be a 2D array"), nil
+			return imcp.NewToolResultInvalidArgumentError("values must be a 2D array"), nil
 		}
-		data[i] = value
+		values[i] = value
 	}
 
-	return writeSheetData(args.FileAbsolutePath, args.SheetName, args.NewSheet, args.Range, data)
+	return writeSheet(args.FileAbsolutePath, args.SheetName, args.NewSheet, args.Range, values)
 }
 
-func writeSheetData(fileAbsolutePath string, sheetName string, newSheet bool, rangeStr string, data [][]any) (*mcp.CallToolResult, error) {
+func writeSheet(fileAbsolutePath string, sheetName string, newSheet bool, rangeStr string, values [][]any) (*mcp.CallToolResult, error) {
 	workbook, closeFn, err := excel.OpenFile(fileAbsolutePath)
 	if err != nil {
 		return nil, err
@@ -123,12 +123,12 @@ func writeSheetData(fileAbsolutePath string, sheetName string, newSheet bool, ra
 
 	// データの整合性チェック
 	rangeRowSize := endRow - startRow + 1
-	if len(data) != rangeRowSize {
-		return imcp.NewToolResultInvalidArgumentError(fmt.Sprintf("number of rows in data (%d) does not match range size (%d)", len(data), rangeRowSize)), nil
+	if len(values) != rangeRowSize {
+		return imcp.NewToolResultInvalidArgumentError(fmt.Sprintf("number of rows in data (%d) does not match range size (%d)", len(values), rangeRowSize)), nil
 	}
 
 	// データの書き込み
-	for i, row := range data {
+	for i, row := range values {
 		rangeColumnSize := endCol - startCol + 1
 		if len(row) != rangeColumnSize {
 			return imcp.NewToolResultInvalidArgumentError(fmt.Sprintf("number of columns in row %d (%d) does not match range size (%d)", i, len(row), rangeColumnSize)), nil
@@ -138,7 +138,13 @@ func writeSheetData(fileAbsolutePath string, sheetName string, newSheet bool, ra
 			if err != nil {
 				return nil, err
 			}
-			err = worksheet.SetValue(cell, cellValue)
+			if cellStr, ok := cellValue.(string); ok && isFormula(cellStr) {
+				// if cellValue is formula, set it as formula
+				err = worksheet.SetFormula(cell, cellStr)
+			} else {
+				// if cellValue is not formula, set it as value
+				err = worksheet.SetValue(cell, cellValue)
+			}
 			if err != nil {
 				return nil, err
 			}
@@ -154,7 +160,7 @@ func writeSheetData(fileAbsolutePath string, sheetName string, newSheet bool, ra
 	if err != nil {
 		return nil, err
 	}
-	html := "<h2>Sheet Data</h2>\n"
+	html := "<h2>Wrote Sheet</h2>\n"
 	html += *table + "\n"
 	html += "<h2>Metadata</h2>\n"
 	html += "<ul>\n"
@@ -165,4 +171,8 @@ func writeSheetData(fileAbsolutePath string, sheetName string, newSheet bool, ra
 	html += "<p>Values wrote successfully.</p>\n"
 
 	return mcp.NewToolResultText(html), nil
+}
+
+func isFormula(value string) bool {
+	return len(value) > 0 && value[0] == '='
 }

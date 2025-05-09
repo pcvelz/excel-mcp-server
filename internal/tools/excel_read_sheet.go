@@ -13,23 +13,25 @@ import (
 	imcp "github.com/negokaz/excel-mcp-server/internal/mcp"
 )
 
-type ReadSheetFormulaArguments struct {
+type ExcelReadSheetArguments struct {
 	FileAbsolutePath  string   `zog:"fileAbsolutePath"`
 	SheetName         string   `zog:"sheetName"`
 	Range             string   `zog:"range"`
 	KnownPagingRanges []string `zog:"knownPagingRanges"`
+	ShowFormula       bool     `zog:"showFormula"`
 }
 
-var readSheetFormulaArgumentsSchema = z.Struct(z.Schema{
+var excelReadSheetArgumentsSchema = z.Struct(z.Schema{
 	"fileAbsolutePath":  z.String().Test(AbsolutePathTest()).Required(),
 	"sheetName":         z.String().Required(),
 	"range":             z.String(),
 	"knownPagingRanges": z.Slice(z.String()),
+	"showFormula":       z.Bool().Default(false),
 })
 
-func AddReadSheetFormulaTool(server *server.MCPServer) {
-	server.AddTool(mcp.NewTool("read_sheet_formula",
-		mcp.WithDescription("Read formulas from Excel sheet with pagination."),
+func AddExcelReadSheetTool(server *server.MCPServer) {
+	server.AddTool(mcp.NewTool("excel_read_sheet",
+		mcp.WithDescription("Read values from Excel sheet with pagination."),
 		mcp.WithString("fileAbsolutePath",
 			mcp.Required(),
 			mcp.Description("Absolute path to the Excel file"),
@@ -47,18 +49,22 @@ func AddReadSheetFormulaTool(server *server.MCPServer) {
 				"type": "string",
 			}),
 		),
-	), handleReadSheetFormulaPaging)
+		mcp.WithBoolean("showFormula",
+			mcp.Required(),
+			mcp.Description("Show formula instead of value"),
+		),
+	), handleReadSheet)
 }
 
-func handleReadSheetFormulaPaging(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	args := ReadSheetFormulaArguments{}
-	if issues := readSheetFormulaArgumentsSchema.Parse(request.Params.Arguments, &args); len(issues) != 0 {
+func handleReadSheet(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	args := ExcelReadSheetArguments{}
+	if issues := excelReadSheetArgumentsSchema.Parse(request.Params.Arguments, &args); len(issues) != 0 {
 		return imcp.NewToolResultZogIssueMap(issues), nil
 	}
-	return readSheetFormula(args.FileAbsolutePath, args.SheetName, args.Range, args.KnownPagingRanges)
+	return readSheet(args.FileAbsolutePath, args.SheetName, args.Range, args.KnownPagingRanges, args.ShowFormula)
 }
 
-func readSheetFormula(fileAbsolutePath string, sheetName string, valueRange string, knownPagingRanges []string) (*mcp.CallToolResult, error) {
+func readSheet(fileAbsolutePath string, sheetName string, valueRange string, knownPagingRanges []string, showFormula bool) (*mcp.CallToolResult, error) {
 	config, issues := LoadConfig()
 	if issues != nil {
 		return imcp.NewToolResultZogIssueMap(issues), nil
@@ -109,12 +115,17 @@ func readSheetFormula(fileAbsolutePath string, sheetName string, valueRange stri
 	}
 
 	// HTMLテーブルの生成
-	table, err := CreateHTMLTableOfFormula(worksheet, startCol, startRow, endCol, endRow)
+	var table *string
+	if showFormula {
+		table, err = CreateHTMLTableOfFormula(worksheet, startCol, startRow, endCol, endRow)
+	} else {
+		table, err = CreateHTMLTableOfValues(worksheet, startCol, startRow, endCol, endRow)
+	}
 	if err != nil {
 		return nil, err
 	}
 
-	result := "<h2>Sheet Formulas</h2>\n"
+	result := "<h2>Read Sheet</h2>\n"
 	result += *table + "\n"
 	result += "<h2>Metadata</h2>\n"
 	result += "<ul>\n"

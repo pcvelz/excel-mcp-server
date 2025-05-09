@@ -17,15 +17,13 @@ func New(version string) *ExcelServer {
 		"excel-mcp-server",
 		version,
 	)
-	tools.AddReadSheetNamesTool(s.server)
-	tools.AddReadSheetDataTool(s.server)
-	tools.AddReadSheetFormulaTool(s.server)
+	tools.AddExcelDescribeSheetsTool(s.server)
+	tools.AddExcelReadSheetTool(s.server)
 	if runtime.GOOS == "windows" {
-		tools.AddReadSheetImageTool(s.server)
+		tools.AddExcelScreenCaptureTool(s.server)
 	}
-	tools.AddWriteSheetDataTool(s.server)
-	tools.AddWriteSheetFormulaTool(s.server)
-	tools.AddCopySheetTool(s.server)
+	tools.AddExcelWriteToSheetTool(s.server)
+	tools.AddExcelCopySheetTool(s.server)
 	return s
 }
 
