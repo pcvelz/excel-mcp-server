@@ -128,6 +128,7 @@ func writeSheet(fileAbsolutePath string, sheetName string, newSheet bool, rangeS
 	}
 
 	// データの書き込み
+	wroteFormula := false
 	for i, row := range values {
 		rangeColumnSize := endCol - startCol + 1
 		if len(row) != rangeColumnSize {
@@ -141,6 +142,7 @@ func writeSheet(fileAbsolutePath string, sheetName string, newSheet bool, rangeS
 			if cellStr, ok := cellValue.(string); ok && isFormula(cellStr) {
 				// if cellValue is formula, set it as formula
 				err = worksheet.SetFormula(cell, cellStr)
+				wroteFormula = true
 			} else {
 				// if cellValue is not formula, set it as value
 				err = worksheet.SetValue(cell, cellValue)
@@ -156,11 +158,16 @@ func writeSheet(fileAbsolutePath string, sheetName string, newSheet bool, rangeS
 	}
 
 	// HTMLテーブルの生成
-	table, err := CreateHTMLTableOfFormula(worksheet, startCol, startRow, endCol, endRow)
+	var table *string
+	if wroteFormula {
+		table, err = CreateHTMLTableOfFormula(worksheet, startCol, startRow, endCol, endRow)
+	} else {
+		table, err = CreateHTMLTableOfValues(worksheet, startCol, startRow, endCol, endRow)
+	}
 	if err != nil {
 		return nil, err
 	}
-	html := "<h2>Wrote Sheet</h2>\n"
+	html := "<h2>Written Sheet</h2>\n"
 	html += *table + "\n"
 	html += "<h2>Metadata</h2>\n"
 	html += "<ul>\n"
