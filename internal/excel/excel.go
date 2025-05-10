@@ -41,6 +41,8 @@ type Worksheet interface {
 	GetPagingStrategy(pageSize int) (PagingStrategy, error)
 	// CapturePicture returns base64 encoded image data of the specified range.
 	CapturePicture(captureRange string) (string, error)
+	// AddTable adds a table to this worksheet.
+	AddTable(tableRange, tableName string) error
 }
 
 type Table struct {
