@@ -78,7 +78,7 @@ npx -y @smithery/cli install @negokaz/excel-mcp-server --client claude
 
 ### `excel_describe_sheets`
 
-List all sheet names in an Excel file.
+List all sheet information of specified Excel file.
 
 **Arguments:**
 - `fileAbsolutePath`

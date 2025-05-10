@@ -7,6 +7,8 @@ import (
 type Excel interface {
 	// GetSheetNames returns the names of all sheets in the Excel file.
 	GetSheetNames() ([]string, error)
+	// GetSheets returns a list of all worksheets in the Excel file.
+	GetSheets() ([]Worksheet, error)
 	// FindSheet finds a sheet by its name and returns a Worksheet.
 	FindSheet(sheetName string) (Worksheet, error)
 	// CreateNewSheet creates a new sheet with the specified name.
@@ -20,6 +22,10 @@ type Excel interface {
 type Worksheet interface {
 	// Name returns the name of the worksheet.
 	Name() (string, error)
+	// GetTable returns a tables in this worksheet.
+	GetTables() ([]Table, error)
+  // GetPivotTable returns a pivot tables in this worksheet.
+  GetPivotTables() ([]PivotTable, error)
 	// SetValue sets a value in the specified cell.
 	SetValue(cell string, value any) error
 	// SetFormula sets a formula in the specified cell.
@@ -35,6 +41,16 @@ type Worksheet interface {
 	GetPagingStrategy(pageSize int) (PagingStrategy, error)
 	// CapturePicture returns base64 encoded image data of the specified range.
 	CapturePicture(captureRange string) (string, error)
+}
+
+type Table struct {
+  Name string
+  Range string
+}
+
+type PivotTable struct {
+  Name string
+  Range string
 }
 
 // OpenFile opens an Excel file and returns an Excel interface.

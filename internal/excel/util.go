@@ -85,3 +85,10 @@ func GetSheetDimensionByIterators(f *excelize.File, sheetName string) (string, e
 	dimension := fmt.Sprintf("%s:%s", startCell, endCell)
 	return dimension, nil
 }
+
+func NormalizeRange(rangeStr string) string {
+	startCol, startRow, endCol, endRow, _ := ParseRange(rangeStr)
+	startCell, _ := excelize.CoordinatesToCellName(startCol, startRow)
+	endCell, _ := excelize.CoordinatesToCellName(endCol, endRow)
+	return fmt.Sprintf("%s:%s", startCell, endCell)
+}
