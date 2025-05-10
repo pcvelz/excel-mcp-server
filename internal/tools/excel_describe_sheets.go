@@ -68,6 +68,7 @@ func describeSheets(fileAbsolutePath string) (*mcp.CallToolResult, error) {
 	}
 	worksheets := make([]Worksheet, len(sheetList))
 	for i, sheet := range sheetList {
+		defer sheet.Release()
 		name, err := sheet.Name()
 		if err != nil {
 			return nil, err

@@ -73,6 +73,7 @@ func readSheetImage(fileAbsolutePath string, sheetName string, rangeStr string, 
 	if err != nil {
 		return imcp.NewToolResultInvalidArgumentError(err.Error()), nil
 	}
+	defer worksheet.Release()
 
 	pagingStrategy, err := worksheet.GetPagingStrategy(5000)
 	if err != nil {

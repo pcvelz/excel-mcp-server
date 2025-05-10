@@ -18,12 +18,14 @@ type Excel interface {
 }
 
 type Worksheet interface {
+	// Release releases the worksheet resources.
+	Release()
 	// Name returns the name of the worksheet.
 	Name() (string, error)
 	// GetTable returns a tables in this worksheet.
 	GetTables() ([]Table, error)
-  // GetPivotTable returns a pivot tables in this worksheet.
-  GetPivotTables() ([]PivotTable, error)
+	// GetPivotTable returns a pivot tables in this worksheet.
+	GetPivotTables() ([]PivotTable, error)
 	// SetValue sets a value in the specified cell.
 	SetValue(cell string, value any) error
 	// SetFormula sets a formula in the specified cell.
@@ -42,13 +44,13 @@ type Worksheet interface {
 }
 
 type Table struct {
-  Name string
-  Range string
+	Name  string
+	Range string
 }
 
 type PivotTable struct {
-  Name string
-  Range string
+	Name  string
+	Range string
 }
 
 // OpenFile opens an Excel file and returns an Excel interface.

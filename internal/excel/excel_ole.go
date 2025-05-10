@@ -109,7 +109,6 @@ func (o *OleExcel) FindSheet(sheetName string) (Worksheet, error) {
 				worksheet: worksheet,
 			}, nil
 		}
-		worksheet.Release()
 	}
 
 	return nil, fmt.Errorf("sheet not found: %s", sheetName)
@@ -176,6 +175,10 @@ func (o *OleExcel) Save() error {
 		return err
 	}
 	return nil
+}
+
+func (o *OleWorksheet) Release() {
+	o.worksheet.Release()
 }
 
 func (o *OleWorksheet) Name() (string, error) {

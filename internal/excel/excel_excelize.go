@@ -87,6 +87,10 @@ type ExcelizeWorksheet struct {
 	sheetName string
 }
 
+func (w *ExcelizeWorksheet) Release() {
+	// No resources to release in excelize
+}
+
 func (w *ExcelizeWorksheet) Name() (string, error) {
 	return w.sheetName, nil
 }
