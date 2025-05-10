@@ -70,6 +70,9 @@ func copySheet(fileAbsolutePath string, srcSheetName string, dstSheetName string
 	if err := workbook.CopySheet(srcSheetName, dstSheetName); err != nil {
 		return nil, err
 	}
+	if err := workbook.Save(); err != nil {
+		return nil, err
+	}
 
 	result := "# Notice\n"
 	result += fmt.Sprintf("Sheet [%s] copied to [%s].\n", html.EscapeString(srcSheetName), html.EscapeString(dstSheetName))
