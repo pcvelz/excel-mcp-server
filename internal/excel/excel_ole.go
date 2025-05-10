@@ -332,6 +332,31 @@ func (o *OleWorksheet) CapturePicture(captureRange string) (string, error) {
 	return base64.StdEncoding.EncodeToString(buf.Bytes()), nil
 }
 
+func (o *OleWorksheet) AddTable(tableRange string, tableName string) error {
+	tables := oleutil.MustGetProperty(o.worksheet, "ListObjects").ToIDispatch()
+	defer tables.Release()
+
+	// https://learn.microsoft.com/ja-jp/office/vba/api/excel.listobjects.add
+	tableVar, err := oleutil.CallMethod(
+		tables,
+		"Add",
+		int(1), // xlSrcRange (https://learn.microsoft.com/ja-jp/office/vba/api/excel.xllistobjectsourcetype)
+		tableRange,
+		nil,
+		int(0), // xlYes (https://learn.microsoft.com/ja-jp/office/vba/api/excel.xlyesnoguess)
+	)
+  if err != nil {
+    return err
+  }
+	table := tableVar.ToIDispatch()
+	defer table.Release()
+	_, err = oleutil.PutProperty(table, "Name", tableName)
+	if err != nil {
+		return err
+	}
+	return err
+}
+
 func normalizePath(path string) string {
 	// Normalize the volume name to uppercase
 	vol := filepath.VolumeName(path)

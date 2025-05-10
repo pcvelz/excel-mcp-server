@@ -217,3 +217,20 @@ func (w *ExcelizeWorksheet) GetPagingStrategy(pageSize int) (PagingStrategy, err
 func (w *ExcelizeWorksheet) CapturePicture(captureRange string) (string, error) {
 	return "", fmt.Errorf("CapturePicture is not supported in Excelize")
 }
+
+func (w *ExcelizeWorksheet) AddTable(tableRange, tableName string) error {
+	enable := true
+	if err := w.file.AddTable(w.sheetName, &excelize.Table{
+		Range:             tableRange,
+		Name:              tableName,
+		StyleName:         "TableStyleMedium2",
+		ShowColumnStripes: true,
+		ShowFirstColumn:   false,
+		ShowHeaderRow:     &enable,
+		ShowLastColumn:    false,
+		ShowRowStripes:    &enable,
+	}); err != nil {
+		return err
+	}
+	return nil
+}
