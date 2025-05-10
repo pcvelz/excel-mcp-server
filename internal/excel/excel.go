@@ -5,8 +5,6 @@ import (
 )
 
 type Excel interface {
-	// GetSheetNames returns the names of all sheets in the Excel file.
-	GetSheetNames() ([]string, error)
 	// GetSheets returns a list of all worksheets in the Excel file.
 	GetSheets() ([]Worksheet, error)
 	// FindSheet finds a sheet by its name and returns a Worksheet.

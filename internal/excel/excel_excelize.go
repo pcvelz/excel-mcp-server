@@ -59,11 +59,6 @@ func (e *ExcelizeExcel) CopySheet(srcSheetName string, destSheetName string) err
 	return nil
 }
 
-func (e *ExcelizeExcel) GetSheetNames() ([]string, error) {
-	sheetList := e.file.GetSheetList()
-	return sheetList, nil
-}
-
 func (e *ExcelizeExcel) GetSheets() ([]Worksheet, error) {
 	sheetList := e.file.GetSheetList()
 	worksheets := make([]Worksheet, len(sheetList))
