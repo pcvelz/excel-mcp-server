@@ -17,7 +17,7 @@ builds:
       - darwin
 
 upx:
-  - enabled: true
+  - enabled: "{{ not .IsSnapshot }}"
     compress: best
     lzma: true
     brute: true
