@@ -130,6 +130,20 @@ Write values to the Excel sheet.
 - `values`
     - Values to write to the Excel sheet. If the value is a formula, it should start with "="
 
+### `excel_create_table`
+
+Create a table in the Excel sheet
+
+**Arguments:**
+- `fileAbsolutePath`
+    - Absolute path to the Excel file
+- `sheetName`
+    - Sheet name where the table is created
+- `range`
+    - Range to be a table (e.g., "A1:C10")
+- `tableName`
+    - Table name to be created
+
 ### `excel_copy_sheet`
 
 Copy existing sheet to a new sheet
