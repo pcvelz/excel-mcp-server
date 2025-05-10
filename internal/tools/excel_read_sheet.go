@@ -80,6 +80,7 @@ func readSheet(fileAbsolutePath string, sheetName string, valueRange string, kno
 	if err != nil {
 		return imcp.NewToolResultInvalidArgumentError(err.Error()), nil
 	}
+	defer worksheet.Release()
 
 	// ページング戦略の初期化
 	strategy, err := worksheet.GetPagingStrategy(config.EXCEL_MCP_PAGING_CELLS_LIMIT)

@@ -21,7 +21,7 @@ var excelDescribeSheetsArgumentsSchema = z.Struct(z.Schema{
 
 func AddExcelDescribeSheetsTool(server *server.MCPServer) {
 	server.AddTool(mcp.NewTool("excel_describe_sheets",
-		mcp.WithDescription("List all sheet names in an Excel file"),
+		mcp.WithDescription("List all sheet information of specified Excel file"),
 		mcp.WithString("fileAbsolutePath",
 			mcp.Required(),
 			mcp.Description("Absolute path to the Excel file"),
@@ -38,6 +38,23 @@ func handleDescribeSheets(ctx context.Context, request mcp.CallToolRequest) (*mc
 	return describeSheets(args.FileAbsolutePath)
 }
 
+type Worksheet struct {
+	Name        string       `json:"name"`
+	UsedRange   string       `json:"usedRange"`
+	Tables      []Table      `json:"tables"`
+	PivotTables []PivotTable `json:"pivotTables"`
+}
+
+type Table struct {
+	Name  string `json:"name"`
+	Range string `json:"range"`
+}
+
+type PivotTable struct {
+	Name  string `json:"name"`
+	Range string `json:"range"`
+}
+
 func describeSheets(fileAbsolutePath string) (*mcp.CallToolResult, error) {
 	workbook, release, err := excel.OpenFile(fileAbsolutePath)
 	defer release()
@@ -45,11 +62,51 @@ func describeSheets(fileAbsolutePath string) (*mcp.CallToolResult, error) {
 		return nil, err
 	}
 
-	sheetList, err := workbook.GetSheetNames()
+	sheetList, err := workbook.GetSheets()
 	if err != nil {
 		return nil, err
 	}
-	jsonBytes, err := json.MarshalIndent(sheetList, "", "  ")
+	worksheets := make([]Worksheet, len(sheetList))
+	for i, sheet := range sheetList {
+		defer sheet.Release()
+		name, err := sheet.Name()
+		if err != nil {
+			return nil, err
+		}
+		usedRange, err := sheet.GetDimention()
+		if err != nil {
+			return nil, err
+		}
+		tables, err := sheet.GetTables()
+		if err != nil {
+			return nil, err
+		}
+		tableList := make([]Table, len(tables))
+		for i, table := range tables {
+			tableList[i] = Table{
+				Name:  table.Name,
+				Range: table.Range,
+			}
+		}
+		pivotTables, err := sheet.GetPivotTables()
+		if err != nil {
+			return nil, err
+		}
+		pivotTableList := make([]PivotTable, len(pivotTables))
+		for i, pivotTable := range pivotTables {
+			pivotTableList[i] = PivotTable{
+				Name:  pivotTable.Name,
+				Range: pivotTable.Range,
+			}
+		}
+		worksheets[i] = Worksheet{
+			Name:        name,
+			UsedRange:   usedRange,
+			Tables:      tableList,
+			PivotTables: pivotTableList,
+		}
+	}
+	jsonBytes, err := json.MarshalIndent(worksheets, "", "  ")
 	if err != nil {
 		return nil, err
 	}

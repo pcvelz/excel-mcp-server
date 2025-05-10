@@ -61,6 +61,7 @@ func copySheet(fileAbsolutePath string, srcSheetName string, dstSheetName string
 	if err != nil {
 		return imcp.NewToolResultInvalidArgumentError(err.Error()), nil
 	}
+	defer srcSheet.Release()
 	srcSheetName, err = srcSheet.Name()
 	if err != nil {
 		return nil, err

@@ -78,21 +78,20 @@ func NewExcelOleWithNewObject(absolutePath string) (*OleExcel, func(), error) {
 	}, nil
 }
 
-func (o *OleExcel) GetSheetNames() ([]string, error) {
+func (o *OleExcel) GetSheets() ([]Worksheet, error) {
 	worksheets := oleutil.MustGetProperty(o.workbook, "Worksheets").ToIDispatch()
 	defer worksheets.Release()
 
 	count := int(oleutil.MustGetProperty(worksheets, "Count").Val)
-	names := make([]string, count)
+	worksheetList := make([]Worksheet, count)
 
 	for i := 1; i <= count; i++ {
 		worksheet := oleutil.MustGetProperty(worksheets, "Item", i).ToIDispatch()
-		name := oleutil.MustGetProperty(worksheet, "Name").ToString()
-		names[i-1] = name
-		worksheet.Release()
+		worksheetList[i-1] = &OleWorksheet{
+			worksheet: worksheet,
+		}
 	}
-
-	return names, nil
+	return worksheetList, nil
 }
 
 func (o *OleExcel) FindSheet(sheetName string) (Worksheet, error) {
@@ -110,7 +109,6 @@ func (o *OleExcel) FindSheet(sheetName string) (Worksheet, error) {
 				worksheet: worksheet,
 			}, nil
 		}
-		worksheet.Release()
 	}
 
 	return nil, fmt.Errorf("sheet not found: %s", sheetName)
@@ -179,9 +177,52 @@ func (o *OleExcel) Save() error {
 	return nil
 }
 
+func (o *OleWorksheet) Release() {
+	o.worksheet.Release()
+}
+
 func (o *OleWorksheet) Name() (string, error) {
 	name := oleutil.MustGetProperty(o.worksheet, "Name").ToString()
 	return name, nil
+}
+
+func (o *OleWorksheet) GetTables() ([]Table, error) {
+	tables := oleutil.MustGetProperty(o.worksheet, "ListObjects").ToIDispatch()
+	defer tables.Release()
+	count := int(oleutil.MustGetProperty(tables, "Count").Val)
+	tableList := make([]Table, count)
+	for i := 1; i <= count; i++ {
+		table := oleutil.MustGetProperty(tables, "Item", i).ToIDispatch()
+		defer table.Release()
+		name := oleutil.MustGetProperty(table, "Name").ToString()
+		defer table.Release()
+		tableRange := oleutil.MustGetProperty(table, "Range").ToIDispatch()
+		defer tableRange.Release()
+		tableList[i-1] = Table{
+			Name:  name,
+			Range: NormalizeRange(oleutil.MustGetProperty(tableRange, "Address").ToString()),
+		}
+	}
+	return tableList, nil
+}
+
+func (o *OleWorksheet) GetPivotTables() ([]PivotTable, error) {
+	pivotTables := oleutil.MustGetProperty(o.worksheet, "PivotTables").ToIDispatch()
+	defer pivotTables.Release()
+	count := int(oleutil.MustGetProperty(pivotTables, "Count").Val)
+	pivotTableList := make([]PivotTable, count)
+	for i := 1; i <= count; i++ {
+		pivotTable := oleutil.MustGetProperty(pivotTables, "Item", i).ToIDispatch()
+		defer pivotTable.Release()
+		name := oleutil.MustGetProperty(pivotTable, "Name").ToString()
+		pivotTableRange := oleutil.MustGetProperty(pivotTable, "TableRange1").ToIDispatch()
+		defer pivotTableRange.Release()
+		pivotTableList[i-1] = PivotTable{
+			Name:  name,
+			Range: NormalizeRange(oleutil.MustGetProperty(pivotTableRange, "Address").ToString()),
+		}
+	}
+	return pivotTableList, nil
 }
 
 func (o *OleWorksheet) SetValue(cell string, value any) error {
@@ -223,7 +264,7 @@ func (o *OleWorksheet) GetDimention() (string, error) {
 	range_ := oleutil.MustGetProperty(o.worksheet, "UsedRange").ToIDispatch()
 	defer range_.Release()
 	dimension := oleutil.MustGetProperty(range_, "Address").ToString()
-	return dimension, nil
+	return NormalizeRange(dimension), nil
 }
 
 func (o *OleWorksheet) GetPagingStrategy(pageSize int) (PagingStrategy, error) {

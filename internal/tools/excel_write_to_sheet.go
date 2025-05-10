@@ -115,6 +115,7 @@ func writeSheet(fileAbsolutePath string, sheetName string, newSheet bool, rangeS
 	if err != nil {
 		return imcp.NewToolResultInvalidArgumentError(err.Error()), nil
 	}
+	defer worksheet.Release()
 
 	startCol, startRow, endCol, endRow, err := excel.ParseRange(rangeStr)
 	if err != nil {

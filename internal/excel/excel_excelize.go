@@ -59,9 +59,13 @@ func (e *ExcelizeExcel) CopySheet(srcSheetName string, destSheetName string) err
 	return nil
 }
 
-func (e *ExcelizeExcel) GetSheetNames() ([]string, error) {
+func (e *ExcelizeExcel) GetSheets() ([]Worksheet, error) {
 	sheetList := e.file.GetSheetList()
-	return sheetList, nil
+	worksheets := make([]Worksheet, len(sheetList))
+	for i, sheetName := range sheetList {
+		worksheets[i] = &ExcelizeWorksheet{file: e.file, sheetName: sheetName}
+	}
+	return worksheets, nil
 }
 
 // SaveExcelize saves the Excel file to the specified path.
@@ -83,8 +87,42 @@ type ExcelizeWorksheet struct {
 	sheetName string
 }
 
+func (w *ExcelizeWorksheet) Release() {
+	// No resources to release in excelize
+}
+
 func (w *ExcelizeWorksheet) Name() (string, error) {
 	return w.sheetName, nil
+}
+
+func (w *ExcelizeWorksheet) GetTables() ([]Table, error) {
+	tables, err := w.file.GetTables(w.sheetName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get tables: %w", err)
+	}
+	tableList := make([]Table, len(tables))
+	for i, table := range tables {
+		tableList[i] = Table{
+			Name:  table.Name,
+			Range: NormalizeRange(table.Range),
+		}
+	}
+	return tableList, nil
+}
+
+func (w *ExcelizeWorksheet) GetPivotTables() ([]PivotTable, error) {
+	pivotTables, err := w.file.GetPivotTables(w.sheetName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get pivot tables: %w", err)
+	}
+	pivotTableList := make([]PivotTable, len(pivotTables))
+	for i, pivotTable := range pivotTables {
+		pivotTableList[i] = PivotTable{
+			Name:  pivotTable.Name,
+			Range: NormalizeRange(pivotTable.PivotTableRange),
+		}
+	}
+	return pivotTableList, nil
 }
 
 func (w *ExcelizeWorksheet) SetValue(cell string, value any) error {
