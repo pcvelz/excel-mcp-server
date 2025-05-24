@@ -17,6 +17,10 @@ func NewExcelizeExcel(file *excelize.File) Excel {
 	return &ExcelizeExcel{file: file}
 }
 
+func (e *ExcelizeExcel) GetBackendName() string {
+	return "excelize"
+}
+
 func (e *ExcelizeExcel) FindSheet(sheetName string) (Worksheet, error) {
 	index, err := e.file.GetSheetIndex(sheetName)
 	if err != nil {

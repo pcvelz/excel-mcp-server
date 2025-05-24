@@ -5,6 +5,8 @@ import (
 )
 
 type Excel interface {
+	// GetBackendName returns the backend used to manipulate the Excel file.
+	GetBackendName() string
 	// GetSheets returns a list of all worksheets in the Excel file.
 	GetSheets() ([]Worksheet, error)
 	// FindSheet finds a sheet by its name and returns a Worksheet.

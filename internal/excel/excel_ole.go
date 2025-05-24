@@ -78,6 +78,10 @@ func NewExcelOleWithNewObject(absolutePath string) (*OleExcel, func(), error) {
 	}, nil
 }
 
+func (o *OleExcel) GetBackendName() string {
+	return "ole"
+}
+
 func (o *OleExcel) GetSheets() ([]Worksheet, error) {
 	worksheets := oleutil.MustGetProperty(o.workbook, "Worksheets").ToIDispatch()
 	defer worksheets.Release()
@@ -345,9 +349,9 @@ func (o *OleWorksheet) AddTable(tableRange string, tableName string) error {
 		nil,
 		int(0), // xlYes (https://learn.microsoft.com/ja-jp/office/vba/api/excel.xlyesnoguess)
 	)
-  if err != nil {
-    return err
-  }
+	if err != nil {
+		return err
+	}
 	table := tableVar.ToIDispatch()
 	defer table.Release()
 	_, err = oleutil.PutProperty(table, "Name", tableName)

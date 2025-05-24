@@ -70,11 +70,12 @@ func createTable(fileAbsolutePath string, sheetName string, tableRange string, t
 	if err := worksheet.AddTable(tableRange, tableName); err != nil {
 		return nil, err
 	}
-  if err := workbook.Save(); err != nil {
-    return nil, err
-  }
+	if err := workbook.Save(); err != nil {
+		return nil, err
+	}
 
 	result := "# Notice\n"
+	result += fmt.Sprintf("backend: %s\n", workbook.GetBackendName())
 	result += fmt.Sprintf("Table [%s] created.\n", html.EscapeString(tableName))
 	return mcp.NewToolResultText(result), nil
 }
