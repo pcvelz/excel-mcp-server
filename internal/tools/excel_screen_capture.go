@@ -102,6 +102,7 @@ func readSheetImage(fileAbsolutePath string, sheetName string, rangeStr string, 
 	}
 
 	text := "# Metadata\n"
+	text += fmt.Sprintf("- backend: %s\n", workbook.GetBackendName())
 	text += fmt.Sprintf("- sheet name: %s\n", sheetName)
 	text += fmt.Sprintf("- read range: %s\n", currentRange)
 	text += "# Notice\n"

@@ -130,6 +130,7 @@ func readSheet(fileAbsolutePath string, sheetName string, valueRange string, kno
 	result += *table + "\n"
 	result += "<h2>Metadata</h2>\n"
 	result += "<ul>\n"
+	result += fmt.Sprintf("<li>backend: %s</li>\n", workbook.GetBackendName())
 	result += fmt.Sprintf("<li>sheet name: %s</li>\n", html.EscapeString(sheetName))
 	result += fmt.Sprintf("<li>read range: %s</li>\n", currentRange)
 	result += "</ul>\n"

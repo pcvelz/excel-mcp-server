@@ -38,6 +38,10 @@ func handleDescribeSheets(ctx context.Context, request mcp.CallToolRequest) (*mc
 	return describeSheets(args.FileAbsolutePath)
 }
 
+type Response struct {
+	Backend string      `json:"backend"`
+	Sheets  []Worksheet `json:"sheets"`
+}
 type Worksheet struct {
 	Name        string       `json:"name"`
 	UsedRange   string       `json:"usedRange"`
@@ -106,7 +110,11 @@ func describeSheets(fileAbsolutePath string) (*mcp.CallToolResult, error) {
 			PivotTables: pivotTableList,
 		}
 	}
-	jsonBytes, err := json.MarshalIndent(worksheets, "", "  ")
+	response := Response{
+		Backend: workbook.GetBackendName(),
+		Sheets:  worksheets,
+	}
+	jsonBytes, err := json.MarshalIndent(response, "", "  ")
 	if err != nil {
 		return nil, err
 	}

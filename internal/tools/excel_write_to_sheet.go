@@ -172,6 +172,7 @@ func writeSheet(fileAbsolutePath string, sheetName string, newSheet bool, rangeS
 	html += *table + "\n"
 	html += "<h2>Metadata</h2>\n"
 	html += "<ul>\n"
+	html += fmt.Sprintf("<li>backend: %s</li>\n", workbook.GetBackendName())
 	html += fmt.Sprintf("<li>sheet name: %s</li>\n", sheetName)
 	html += fmt.Sprintf("<li>read range: %s</li>\n", rangeStr)
 	html += "</ul>\n"

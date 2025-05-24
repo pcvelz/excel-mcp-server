@@ -75,6 +75,7 @@ func copySheet(fileAbsolutePath string, srcSheetName string, dstSheetName string
 	}
 
 	result := "# Notice\n"
+	result += fmt.Sprintf("backend: %s\n", workbook.GetBackendName())
 	result += fmt.Sprintf("Sheet [%s] copied to [%s].\n", html.EscapeString(srcSheetName), html.EscapeString(dstSheetName))
 	return mcp.NewToolResultText(result), nil
 }
