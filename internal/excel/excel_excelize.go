@@ -2,7 +2,6 @@ package excel
 
 import (
 	"fmt"
-	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -126,11 +125,23 @@ func (w *ExcelizeWorksheet) GetPivotTables() ([]PivotTable, error) {
 }
 
 func (w *ExcelizeWorksheet) SetValue(cell string, value any) error {
-	return w.file.SetCellValue(w.sheetName, cell, value)
+	if err := w.file.SetCellValue(w.sheetName, cell, value); err != nil {
+		return err
+	}
+	if err := w.updateDimension(cell); err != nil {
+		return fmt.Errorf("failed to update dimension: %w", err)
+	}
+	return nil
 }
 
 func (w *ExcelizeWorksheet) SetFormula(cell string, formula string) error {
-	return w.file.SetCellFormula(w.sheetName, cell, formula)
+	if err := w.file.SetCellFormula(w.sheetName, cell, formula); err != nil {
+		return err
+	}
+	if err := w.updateDimension(cell); err != nil {
+		return fmt.Errorf("failed to update dimension: %w", err)
+	}
+	return nil
 }
 
 func (w *ExcelizeWorksheet) GetValue(cell string) (string, error) {
@@ -167,61 +178,7 @@ func (w *ExcelizeWorksheet) GetFormula(cell string) (string, error) {
 }
 
 func (w *ExcelizeWorksheet) GetDimention() (string, error) {
-	minRow, maxRow := math.MaxInt, 0
-	minCol, maxCol := math.MaxInt, 0
-
-	cols, err := w.file.Cols(w.sheetName)
-	if err != nil {
-		return "", fmt.Errorf("failed to get columns iterator: %w", err)
-	}
-
-	colIdx := 1
-	for cols.Next() {
-		rowData, err := cols.Rows()
-		if err != nil {
-			return "", fmt.Errorf("failed to get row data: %w", err)
-		}
-
-		currentColumnHasData := false
-		for rowIdx, val := range rowData {
-			if val != "" {
-				currentColumnHasData = true
-				rowNum := rowIdx + 1
-				if rowNum < minRow {
-					minRow = rowNum
-				}
-				if rowNum > maxRow {
-					maxRow = rowNum
-				}
-			}
-		}
-		if currentColumnHasData {
-			if colIdx < minCol {
-				minCol = colIdx
-			}
-			if colIdx > maxCol {
-				maxCol = colIdx
-			}
-		}
-		colIdx++
-	}
-
-	// If no data exists
-	if maxRow == 0 || maxCol == 0 {
-		minCol, maxCol, minRow, maxRow = 1, 1, 1, 1
-	}
-
-	startCell, err := excelize.CoordinatesToCellName(minCol, minRow)
-	if err != nil {
-		return "", fmt.Errorf("failed to convert coordinates to cell name: %w", err)
-	}
-	endCell, err := excelize.CoordinatesToCellName(maxCol, maxRow)
-	if err != nil {
-		return "", fmt.Errorf("failed to convert coordinates to cell name: %w", err)
-	}
-
-	dimension := fmt.Sprintf("%s:%s", startCell, endCell)
-	return dimension, nil
+	return w.file.GetSheetDimension(w.sheetName)
 }
 
 func (w *ExcelizeWorksheet) GetPagingStrategy(pageSize int) (PagingStrategy, error) {
@@ -247,4 +204,42 @@ func (w *ExcelizeWorksheet) AddTable(tableRange, tableName string) error {
 		return err
 	}
 	return nil
+}
+
+// updateDimention updates the dimension of the worksheet after a cell is updated.
+func (w *ExcelizeWorksheet) updateDimension(updatedCell string) error {
+	dimension, err := w.file.GetSheetDimension(w.sheetName)
+	if err != nil {
+		return err
+	}
+	startCol, startRow, endCol, endRow, err := ParseRange(dimension)
+	if err != nil {
+		return err
+	}
+	updatedCol, updatedRow, err := excelize.CellNameToCoordinates(updatedCell)
+	if err != nil {
+		return err
+	}
+	if startCol > updatedCol {
+		startCol = updatedCol
+	}
+	if endCol < updatedCol {
+		endCol = updatedCol
+	}
+	if startRow > updatedRow {
+		startRow = updatedRow
+	}
+	if endRow < updatedRow {
+		endRow = updatedRow
+	}
+	startRange, err := excelize.CoordinatesToCellName(startCol, startRow)
+	if err != nil {
+		return err
+	}
+	endRange, err := excelize.CoordinatesToCellName(endCol, endRow)
+	if err != nil {
+		return err
+	}
+	updatedDimension := fmt.Sprintf("%s:%s", startRange, endRange)
+	return w.file.SetSheetDimension(w.sheetName, updatedDimension)
 }
