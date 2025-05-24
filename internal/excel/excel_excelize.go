@@ -134,7 +134,21 @@ func (w *ExcelizeWorksheet) SetFormula(cell string, formula string) error {
 }
 
 func (w *ExcelizeWorksheet) GetValue(cell string) (string, error) {
-	return w.file.GetCellValue(w.sheetName, cell)
+	value, err := w.file.GetCellValue(w.sheetName, cell)
+	if err != nil {
+		return "", err
+	}
+	if value == "" {
+		// try to get calculated value
+		formula, err := w.file.GetCellFormula(w.sheetName, cell)
+		if err != nil {
+			return "", fmt.Errorf("failed to get formula: %w", err)
+		}
+		if formula != "" {
+			return w.file.CalcCellValue(w.sheetName, cell)
+		}
+	}
+	return value, nil
 }
 
 func (w *ExcelizeWorksheet) GetFormula(cell string) (string, error) {
