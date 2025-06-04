@@ -7,6 +7,9 @@ import (
 	"io"
 	"path/filepath"
 	"strings"
+	"time"
+
+	"github.com/djherbis/times"
 
 	"encoding/base64"
 
@@ -40,7 +43,31 @@ func NewExcelOle(absolutePath string) (*OleExcel, func(), error) {
 	for i := 1; i <= int(c); i++ {
 		workbook := oleutil.MustGetProperty(workbooks, "Item", i).ToIDispatch()
 		fullName := oleutil.MustGetProperty(workbook, "FullName").ToString()
-		if normalizePath(fullName) == normalizePath(absolutePath) {
+		name := oleutil.MustGetProperty(workbook, "Name").ToString()
+		if strings.HasPrefix(fullName, "https:") && name == filepath.Base(absolutePath) {
+			// If a workbook is opened through a WOPI URL, its absolute file path cannot be retrieved.
+			// Run the Save method, then compare the refreshed file attributes with the workbook’s internal "Last Save Time" property
+			// to confirm you are working with the intended workbook.
+			if _, err := oleutil.CallMethod(workbook, "Save"); err != nil {
+				return nil, func() {}, err
+			}
+			times, err := times.Stat(absolutePath)
+			if err != nil {
+				return nil, func() {}, fmt.Errorf("failed to get file times: %w", err)
+			}
+			savedProp := oleutil.MustGetProperty(workbook, "BuiltinDocumentProperties", "Last save time").ToIDispatch()
+			savedValue := oleutil.MustGetProperty(savedProp, "Value").Value().(time.Time)
+			if times.ModTime().Format(time.DateTime) == savedValue.Format(time.DateTime) {
+				return &OleExcel{workbook: workbook}, func() {
+					workbook.Release()
+					workbooks.Release()
+					excel.Release()
+					ole.CoUninitialize()
+				}, nil
+			} else {
+				// This workbook might not be specified with the absolutePath
+			}
+		} else if normalizePath(fullName) == normalizePath(absolutePath) {
 			return &OleExcel{workbook: workbook}, func() {
 				workbook.Release()
 				workbooks.Release()
