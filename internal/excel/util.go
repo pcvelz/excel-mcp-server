@@ -3,6 +3,7 @@ package excel
 import (
 	"fmt"
 	"regexp"
+	"time"
 
 	"github.com/xuri/excelize/v2"
 )
@@ -30,4 +31,22 @@ func NormalizeRange(rangeStr string) string {
 	startCell, _ := excelize.CoordinatesToCellName(startCol, startRow)
 	endCell, _ := excelize.CoordinatesToCellName(endCol, endRow)
 	return fmt.Sprintf("%s:%s", startCell, endCell)
+}
+
+// FetchLastModifiedTimeWithExcelize retrieves the last modified time of an Excel file using excelize
+func FetchLastModifiedTimeWithExcelize(absolutePath string) (time.Time, error) {
+	f, err := excelize.OpenFile(absolutePath)
+	if err != nil {
+		return time.Time{}, err
+	}
+	defer f.Close()
+	props, err := f.GetDocProps()
+	if err != nil {
+		return time.Time{}, err
+	}
+	lastSaveTime, err := time.Parse(time.RFC3339, props.Modified)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return lastSaveTime, nil
 }
