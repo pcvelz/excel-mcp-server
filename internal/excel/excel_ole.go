@@ -51,13 +51,18 @@ func NewExcelOle(absolutePath string) (*OleExcel, func(), error) {
 			if _, err := oleutil.CallMethod(workbook, "Save"); err != nil {
 				return nil, func() {}, err
 			}
-			times, err := times.Stat(absolutePath)
+			lastModified, err := FetchLastModifiedTimeWithExcelize(absolutePath)
 			if err != nil {
-				return nil, func() {}, fmt.Errorf("failed to get file times: %w", err)
+				// If fetching the last modified time with excelize fails, try to get it from the file system
+				times, err := times.Stat(absolutePath)
+				if err != nil {
+					return nil, func() {}, err
+				}
+				lastModified = times.ModTime()
 			}
 			savedProp := oleutil.MustGetProperty(workbook, "BuiltinDocumentProperties", "Last save time").ToIDispatch()
 			savedValue := oleutil.MustGetProperty(savedProp, "Value").Value().(time.Time)
-			if times.ModTime().Format(time.DateTime) == savedValue.Format(time.DateTime) {
+			if lastModified.Format(time.DateTime) == savedValue.Format(time.DateTime) {
 				return &OleExcel{workbook: workbook}, func() {
 					workbook.Release()
 					workbooks.Release()
