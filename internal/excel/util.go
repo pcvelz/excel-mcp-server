@@ -48,5 +48,5 @@ func FetchLastModifiedTimeWithExcelize(absolutePath string) (time.Time, error) {
 	if err != nil {
 		return time.Time{}, err
 	}
-	return lastSaveTime, nil
+	return lastSaveTime.Local(), nil
 }
