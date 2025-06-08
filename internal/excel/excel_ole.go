@@ -7,9 +7,6 @@ import (
 	"io"
 	"path/filepath"
 	"strings"
-	"time"
-
-	"github.com/djherbis/times"
 
 	"encoding/base64"
 
@@ -46,23 +43,8 @@ func NewExcelOle(absolutePath string) (*OleExcel, func(), error) {
 		name := oleutil.MustGetProperty(workbook, "Name").ToString()
 		if strings.HasPrefix(fullName, "https:") && name == filepath.Base(absolutePath) {
 			// If a workbook is opened through a WOPI URL, its absolute file path cannot be retrieved.
-			// Run the Save method, then compare the refreshed file attributes with the workbook’s internal "Last Save Time" property
-			// to confirm you are working with the intended workbook.
-			if _, err := oleutil.CallMethod(workbook, "Save"); err != nil {
-				return nil, func() {}, err
-			}
-			lastModified, err := FetchLastModifiedTimeWithExcelize(absolutePath)
-			if err != nil {
-				// If fetching the last modified time with excelize fails, try to get it from the file system
-				times, err := times.Stat(absolutePath)
-				if err != nil {
-					return nil, func() {}, err
-				}
-				lastModified = times.ModTime()
-			}
-			savedProp := oleutil.MustGetProperty(workbook, "BuiltinDocumentProperties", "Last save time").ToIDispatch()
-			savedValue := oleutil.MustGetProperty(savedProp, "Value").Value().(time.Time)
-			if lastModified.Format(time.DateTime) == savedValue.Format(time.DateTime) {
+			// If the absolutePath is not writable, it assumes that the workbook has opened by WOPI.
+			if FileIsNotWritable(absolutePath) {
 				return &OleExcel{workbook: workbook}, func() {
 					workbook.Release()
 					workbooks.Release()

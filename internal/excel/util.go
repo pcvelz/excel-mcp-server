@@ -2,6 +2,8 @@ package excel
 
 import (
 	"fmt"
+	"os"
+	"path"
 	"regexp"
 	"time"
 
@@ -49,4 +51,13 @@ func FetchLastModifiedTimeWithExcelize(absolutePath string) (time.Time, error) {
 		return time.Time{}, err
 	}
 	return lastSaveTime.Local(), nil
+}
+
+func FileIsNotWritable(absolutePath string) bool {
+	f, err := os.OpenFile(path.Clean(absolutePath), os.O_WRONLY, os.ModePerm)
+	if err != nil {
+		return true
+	}
+	defer f.Close()
+	return false
 }
