@@ -9,3 +9,5 @@ dist/
 .clinerules-default
 # repomix
 repomix-output.xml
+# Claude Code
+.claude/settings.local.json
