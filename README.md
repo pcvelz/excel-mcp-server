@@ -95,8 +95,6 @@ Read values from Excel sheet with pagination.
     - Sheet name in the Excel file
 - `range`
     - Range of cells to read in the Excel sheet (e.g., "A1:C10"). [default: first paging range]
-- `knownPagingRanges`
-    - List of already read paging ranges
 - `showFormula`
     - Show formula instead of value
 
@@ -111,8 +109,6 @@ Read values from Excel sheet with pagination.
     - Sheet name in the Excel file
 - `range`
     - Range of cells to read in the Excel sheet (e.g., "A1:C10"). [default: first paging range]
-- `knownPagingRanges`
-    - List of already read paging ranges
 
 ### `excel_write_to_sheet`
 
