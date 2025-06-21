@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"html"
-	"strings"
+	"slices"
 
 	z "github.com/Oudwins/zog"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -14,19 +14,17 @@ import (
 )
 
 type ExcelReadSheetArguments struct {
-	FileAbsolutePath  string   `zog:"fileAbsolutePath"`
-	SheetName         string   `zog:"sheetName"`
-	Range             string   `zog:"range"`
-	KnownPagingRanges []string `zog:"knownPagingRanges"`
-	ShowFormula       bool     `zog:"showFormula"`
+	FileAbsolutePath string `zog:"fileAbsolutePath"`
+	SheetName        string `zog:"sheetName"`
+	Range            string `zog:"range"`
+	ShowFormula      bool   `zog:"showFormula"`
 }
 
 var excelReadSheetArgumentsSchema = z.Struct(z.Schema{
-	"fileAbsolutePath":  z.String().Test(AbsolutePathTest()).Required(),
-	"sheetName":         z.String().Required(),
-	"range":             z.String(),
-	"knownPagingRanges": z.Slice(z.String()),
-	"showFormula":       z.Bool().Default(false),
+	"fileAbsolutePath": z.String().Test(AbsolutePathTest()).Required(),
+	"sheetName":        z.String().Required(),
+	"range":            z.String(),
+	"showFormula":      z.Bool().Default(false),
 })
 
 func AddExcelReadSheetTool(server *server.MCPServer) {
@@ -43,14 +41,7 @@ func AddExcelReadSheetTool(server *server.MCPServer) {
 		mcp.WithString("range",
 			mcp.Description("Range of cells to read in the Excel sheet (e.g., \"A1:C10\"). [default: first paging range]"),
 		),
-		mcp.WithArray("knownPagingRanges",
-			mcp.Description("List of already read paging ranges"),
-			mcp.Items(map[string]any{
-				"type": "string",
-			}),
-		),
 		mcp.WithBoolean("showFormula",
-			mcp.Required(),
 			mcp.Description("Show formula instead of value"),
 		),
 	), handleReadSheet)
@@ -61,10 +52,10 @@ func handleReadSheet(ctx context.Context, request mcp.CallToolRequest) (*mcp.Cal
 	if issues := excelReadSheetArgumentsSchema.Parse(request.Params.Arguments, &args); len(issues) != 0 {
 		return imcp.NewToolResultZogIssueMap(issues), nil
 	}
-	return readSheet(args.FileAbsolutePath, args.SheetName, args.Range, args.KnownPagingRanges, args.ShowFormula)
+	return readSheet(args.FileAbsolutePath, args.SheetName, args.Range, args.ShowFormula)
 }
 
-func readSheet(fileAbsolutePath string, sheetName string, valueRange string, knownPagingRanges []string, showFormula bool) (*mcp.CallToolResult, error) {
+func readSheet(fileAbsolutePath string, sheetName string, valueRange string, showFormula bool) (*mcp.CallToolResult, error) {
 	config, issues := LoadConfig()
 	if issues != nil {
 		return imcp.NewToolResultZogIssueMap(issues), nil
@@ -101,8 +92,11 @@ func readSheet(fileAbsolutePath string, sheetName string, valueRange string, kno
 		currentRange = allRanges[0]
 	}
 
-	// 残りの範囲を計算
-	remainingRanges := pagingService.FilterRemainingPagingRanges(allRanges, append(knownPagingRanges, currentRange))
+	// Find next paging range if current range matches a paging range
+	var nextRange string
+	if currentIndex := slices.Index(allRanges, currentRange); currentIndex != -1 && currentIndex+1 < len(allRanges) {
+		nextRange = allRanges[currentIndex+1]
+	}
 
 	// 範囲の検証
 	if err := pagingService.ValidatePagingRange(currentRange); err != nil {
@@ -135,12 +129,12 @@ func readSheet(fileAbsolutePath string, sheetName string, valueRange string, kno
 	result += fmt.Sprintf("<li>read range: %s</li>\n", currentRange)
 	result += "</ul>\n"
 	result += "<h2>Notice</h2>\n"
-	if len(remainingRanges) > 0 {
-		result += "<p>This sheet has more some ranges.</p>\n"
-		result += "<p>To read the next range, you should specify 'range' and 'knownPagingRanges' arguments as follows.</p>\n"
-		result += fmt.Sprintf("<code>{ \"range\": \"%s\", \"knownPagingRanges\": [%s] }</code>\n", remainingRanges[0], "\""+strings.Join(append(knownPagingRanges, currentRange), "\", \"")+"\"")
+	if nextRange != "" {
+		result += "<p>This sheet has more ranges.</p>\n"
+		result += "<p>To read the next range, you should specify 'range' argument as follows.</p>\n"
+		result += fmt.Sprintf("<code>{ \"range\": \"%s\" }</code>\n", nextRange)
 	} else {
-		result += "<p>All ranges have been read.</p>\n"
+		result += "<p>This is the last range or no more ranges available.</p>\n"
 	}
 	return mcp.NewToolResultText(result), nil
 }
