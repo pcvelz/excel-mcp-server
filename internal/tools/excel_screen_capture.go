@@ -3,8 +3,6 @@ package tools
 import (
 	"context"
 	"fmt"
-	"strings"
-
 	z "github.com/Oudwins/zog"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -13,17 +11,15 @@ import (
 )
 
 type ExcelScreenCaptureArguments struct {
-	FileAbsolutePath  string   `zog:"fileAbsolutePath"`
-	SheetName         string   `zog:"sheetName"`
-	Range             string   `zog:"range"`
-	KnownPagingRanges []string `zog:"knownPagingRanges"`
+	FileAbsolutePath string `zog:"fileAbsolutePath"`
+	SheetName        string `zog:"sheetName"`
+	Range            string `zog:"range"`
 }
 
 var ExcelScreenCaptureArgumentsSchema = z.Struct(z.Schema{
-	"fileAbsolutePath":  z.String().Test(AbsolutePathTest()).Required(),
-	"sheetName":         z.String().Required(),
-	"range":             z.String(),
-	"knownPagingRanges": z.Slice(z.String()),
+	"fileAbsolutePath": z.String().Test(AbsolutePathTest()).Required(),
+	"sheetName":        z.String().Required(),
+	"range":            z.String(),
 })
 
 func AddExcelScreenCaptureTool(server *server.MCPServer) {
@@ -40,12 +36,6 @@ func AddExcelScreenCaptureTool(server *server.MCPServer) {
 		mcp.WithString("range",
 			mcp.Description("Range of cells to read in the Excel sheet (e.g., \"A1:C10\"). [default: first paging range]"),
 		),
-		mcp.WithArray("knownPagingRanges",
-			mcp.Description("List of already read paging ranges"),
-			mcp.Items(map[string]any{
-				"type": "string",
-			}),
-		),
 	), handleScreenCapture)
 }
 
@@ -55,10 +45,10 @@ func handleScreenCapture(ctx context.Context, request mcp.CallToolRequest) (*mcp
 	if len(issues) != 0 {
 		return imcp.NewToolResultZogIssueMap(issues), nil
 	}
-	return readSheetImage(args.FileAbsolutePath, args.SheetName, args.Range, args.KnownPagingRanges)
+	return readSheetImage(args.FileAbsolutePath, args.SheetName, args.Range)
 }
 
-func readSheetImage(fileAbsolutePath string, sheetName string, rangeStr string, knownPagingRanges []string) (*mcp.CallToolResult, error) {
+func readSheetImage(fileAbsolutePath string, sheetName string, rangeStr string) (*mcp.CallToolResult, error) {
 	workbook, releaseWorkbook, err := excel.NewExcelOle(fileAbsolutePath)
 	defer releaseWorkbook()
 	if err != nil {
@@ -87,14 +77,15 @@ func readSheetImage(fileAbsolutePath string, sheetName string, rangeStr string, 
 	}
 
 	var currentRange string
-	if rangeStr == "" {
+	if rangeStr == "" && len(allRanges) > 0 {
 		// range が指定されていない場合は最初の Range を使用
 		currentRange = allRanges[0]
 	} else {
 		// range が指定されている場合は指定された範囲を使用
 		currentRange = rangeStr
 	}
-	remainingRanges := pagingService.FilterRemainingPagingRanges(allRanges, append(knownPagingRanges, currentRange))
+	// Find next paging range if current range matches a paging range
+	nextRange := pagingService.FindNextRange(allRanges, currentRange)
 
 	base64image, err := worksheet.CapturePicture(currentRange)
 	if err != nil {
@@ -106,12 +97,12 @@ func readSheetImage(fileAbsolutePath string, sheetName string, rangeStr string, 
 	text += fmt.Sprintf("- sheet name: %s\n", sheetName)
 	text += fmt.Sprintf("- read range: %s\n", currentRange)
 	text += "# Notice\n"
-	if len(remainingRanges) > 0 {
-		text += "This sheet has more some ranges.\n"
-		text += "To read the next range, you should specify 'range' and 'knownPagingRanges' arguments as follows.\n"
-		text += fmt.Sprintf("`{ \"range\": \"%s\", \"knownPagingRanges\": [%s] }`", remainingRanges[0], "\""+strings.Join(append(knownPagingRanges, currentRange), "\", \"")+"\"")
+	if nextRange != "" {
+		text += "This sheet has more ranges.\n"
+		text += "To read the next range, you should specify 'range' argument as follows.\n"
+		text += fmt.Sprintf("`{ \"range\": \"%s\" }`", nextRange)
 	} else {
-		text += "All ranges have been read.\n"
+		text += "This is the last range or no more ranges available.\n"
 	}
 
 	// 結果を返却

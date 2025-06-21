@@ -43,10 +43,11 @@ type Response struct {
 	Sheets  []Worksheet `json:"sheets"`
 }
 type Worksheet struct {
-	Name        string       `json:"name"`
-	UsedRange   string       `json:"usedRange"`
-	Tables      []Table      `json:"tables"`
-	PivotTables []PivotTable `json:"pivotTables"`
+	Name         string       `json:"name"`
+	UsedRange    string       `json:"usedRange"`
+	Tables       []Table      `json:"tables"`
+	PivotTables  []PivotTable `json:"pivotTables"`
+	PagingRanges []string     `json:"pagingRanges"`
 }
 
 type Table struct {
@@ -60,6 +61,10 @@ type PivotTable struct {
 }
 
 func describeSheets(fileAbsolutePath string) (*mcp.CallToolResult, error) {
+	config, issues := LoadConfig()
+	if issues != nil {
+		return imcp.NewToolResultZogIssueMap(issues), nil
+	}
 	workbook, release, err := excel.OpenFile(fileAbsolutePath)
 	defer release()
 	if err != nil {
@@ -103,11 +108,18 @@ func describeSheets(fileAbsolutePath string) (*mcp.CallToolResult, error) {
 				Range: pivotTable.Range,
 			}
 		}
+		var pagingRanges []string
+		strategy, err := sheet.GetPagingStrategy(config.EXCEL_MCP_PAGING_CELLS_LIMIT)
+		if err == nil {
+			pagingService := excel.NewPagingRangeService(strategy)
+			pagingRanges = pagingService.GetPagingRanges()
+		}
 		worksheets[i] = Worksheet{
-			Name:        name,
-			UsedRange:   usedRange,
-			Tables:      tableList,
-			PivotTables: pivotTableList,
+			Name:         name,
+			UsedRange:    usedRange,
+			Tables:       tableList,
+			PivotTables:  pivotTableList,
+			PagingRanges: pagingRanges,
 		}
 	}
 	response := Response{
