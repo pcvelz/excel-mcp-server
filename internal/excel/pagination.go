@@ -386,3 +386,13 @@ func (s *PagingRangeService) FilterRemainingPagingRanges(allRanges []string, kno
 
 	return remaining
 }
+
+// FindNextRange returns the next range in the sequence after the current range
+func (s *PagingRangeService) FindNextRange(allRanges []string, currentRange string) string {
+	for i, r := range allRanges {
+		if r == currentRange && i+1 < len(allRanges) {
+			return allRanges[i+1]
+		}
+	}
+	return ""
+}

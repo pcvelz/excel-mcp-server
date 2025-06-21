@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"html"
-	"slices"
 
 	z "github.com/Oudwins/zog"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -93,10 +92,7 @@ func readSheet(fileAbsolutePath string, sheetName string, valueRange string, sho
 	}
 
 	// Find next paging range if current range matches a paging range
-	var nextRange string
-	if currentIndex := slices.Index(allRanges, currentRange); currentIndex != -1 && currentIndex+1 < len(allRanges) {
-		nextRange = allRanges[currentIndex+1]
-	}
+	nextRange := pagingService.FindNextRange(allRanges, currentRange)
 
 	// 範囲の検証
 	if err := pagingService.ValidatePagingRange(currentRange); err != nil {

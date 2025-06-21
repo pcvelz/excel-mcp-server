@@ -3,10 +3,6 @@ package tools
 import (
 	"context"
 	"fmt"
-	"slices"
-	"os"
-	"strings"
-
 	z "github.com/Oudwins/zog"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -15,15 +11,15 @@ import (
 )
 
 type ExcelScreenCaptureArguments struct {
-	FileAbsolutePath  string   `zog:"fileAbsolutePath"`
-	SheetName         string   `zog:"sheetName"`
-	Range             string   `zog:"range"`
+	FileAbsolutePath string `zog:"fileAbsolutePath"`
+	SheetName        string `zog:"sheetName"`
+	Range            string `zog:"range"`
 }
 
 var ExcelScreenCaptureArgumentsSchema = z.Struct(z.Schema{
-	"fileAbsolutePath":  z.String().Test(AbsolutePathTest()).Required(),
-	"sheetName":         z.String().Required(),
-	"range":             z.String(),
+	"fileAbsolutePath": z.String().Test(AbsolutePathTest()).Required(),
+	"sheetName":        z.String().Required(),
+	"range":            z.String(),
 })
 
 func AddExcelScreenCaptureTool(server *server.MCPServer) {
@@ -80,7 +76,6 @@ func readSheetImage(fileAbsolutePath string, sheetName string, rangeStr string) 
 		return imcp.NewToolResultInvalidArgumentError("no range available to read"), nil
 	}
 
-	fmt.Fprintf(os.Stderr, "%s", strings.Join(allRanges, ", "))
 	var currentRange string
 	if rangeStr == "" && len(allRanges) > 0 {
 		// range が指定されていない場合は最初の Range を使用
@@ -90,10 +85,7 @@ func readSheetImage(fileAbsolutePath string, sheetName string, rangeStr string) 
 		currentRange = rangeStr
 	}
 	// Find next paging range if current range matches a paging range
-	var nextRange string
-	if currentIndex := slices.Index(allRanges, currentRange); currentIndex != -1 && currentIndex+1 < len(allRanges) {
-		nextRange = allRanges[currentIndex+1]
-	}
+	nextRange := pagingService.FindNextRange(allRanges, currentRange)
 
 	base64image, err := worksheet.CapturePicture(currentRange)
 	if err != nil {
