@@ -3,17 +3,15 @@ package excel
 import (
 	"bufio"
 	"bytes"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"path/filepath"
 	"strings"
 
-	"encoding/base64"
-
-	"github.com/skanehira/clipboard-image"
-
 	"github.com/go-ole/go-ole"
 	"github.com/go-ole/go-ole/oleutil"
+	"github.com/skanehira/clipboard-image"
 )
 
 type OleExcel struct {
@@ -373,6 +371,10 @@ func (o *OleWorksheet) AddTable(tableRange string, tableName string) error {
 		return err
 	}
 	return err
+}
+
+func (o *OleWorksheet) GetCellStyle(cell string) (map[string]interface{}, error) {
+	return make(map[string]interface{}), fmt.Errorf("GetCellStyle is not supported in OLE")
 }
 
 func normalizePath(path string) string {

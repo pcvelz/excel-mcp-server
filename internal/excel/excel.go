@@ -45,6 +45,8 @@ type Worksheet interface {
 	CapturePicture(captureRange string) (string, error)
 	// AddTable adds a table to this worksheet.
 	AddTable(tableRange, tableName string) error
+	// GetCellStyle gets style information for the specified cell.
+	GetCellStyle(cell string) (map[string]interface{}, error)
 }
 
 type Table struct {

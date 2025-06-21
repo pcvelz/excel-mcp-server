@@ -108,9 +108,9 @@ func readSheet(fileAbsolutePath string, sheetName string, valueRange string, sho
 	// HTMLテーブルの生成
 	var table *string
 	if showFormula {
-		table, err = CreateHTMLTableOfFormula(worksheet, startCol, startRow, endCol, endRow)
+		table, err = CreateHTMLTableOfFormulaWithStyle(worksheet, startCol, startRow, endCol, endRow)
 	} else {
-		table, err = CreateHTMLTableOfValues(worksheet, startCol, startRow, endCol, endRow)
+		table, err = CreateHTMLTableOfValuesWithStyle(worksheet, startCol, startRow, endCol, endRow)
 	}
 	if err != nil {
 		return nil, err
