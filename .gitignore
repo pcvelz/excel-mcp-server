@@ -10,4 +10,5 @@ dist/
 # repomix
 repomix-output.xml
 # Claude Code
+CLAUDE.local.md
 .claude/settings.local.json
