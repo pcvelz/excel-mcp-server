@@ -5,7 +5,8 @@ import (
 	"fmt"
 	"html"
 	"path/filepath"
-	"sort"
+	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/goccy/go-yaml"
@@ -17,25 +18,25 @@ import (
 )
 
 type StyleRegistry struct {
-	styles   map[string]map[string]any // styleID -> styleMap
-	hashToID map[string]string         // styleHash -> styleID
+	styles   map[string]*excel.CellStyle // styleID -> CellStyle
+	hashToID map[string]string           // styleHash -> styleID
 	counter  int
 }
 
 func NewStyleRegistry() *StyleRegistry {
 	return &StyleRegistry{
-		styles:   make(map[string]map[string]any),
+		styles:   make(map[string]*excel.CellStyle),
 		hashToID: make(map[string]string),
 		counter:  0,
 	}
 }
 
-func (sr *StyleRegistry) RegisterStyle(styleMap map[string]any) string {
-	if len(styleMap) == 0 {
+func (sr *StyleRegistry) RegisterStyle(cellStyle *excel.CellStyle) string {
+	if cellStyle == nil || sr.isEmptyStyle(cellStyle) {
 		return ""
 	}
 
-	styleHash := sr.calculateStyleHash(styleMap)
+	styleHash := sr.calculateStyleHash(cellStyle)
 
 	if existingID, exists := sr.hashToID[styleHash]; exists {
 		return existingID
@@ -43,14 +44,24 @@ func (sr *StyleRegistry) RegisterStyle(styleMap map[string]any) string {
 
 	sr.counter++
 	styleID := fmt.Sprintf("s%d", sr.counter)
-	sr.styles[styleID] = styleMap
+	sr.styles[styleID] = cellStyle
 	sr.hashToID[styleHash] = styleID
 
 	return styleID
 }
 
-func (sr *StyleRegistry) calculateStyleHash(styleMap map[string]any) string {
-	yamlBytes, err := yaml.MarshalWithOptions(styleMap, yaml.Flow(true), yaml.OmitEmpty())
+func (sr *StyleRegistry) isEmptyStyle(style *excel.CellStyle) bool {
+	if len(style.Border) > 0 || style.Font != nil || style.NumFmt != "" || style.DecimalPlaces != 0 {
+		return false
+	}
+	if style.Fill != nil && style.Fill.Type != "" {
+		return false
+	}
+	return true
+}
+
+func (sr *StyleRegistry) calculateStyleHash(cellStyle *excel.CellStyle) string {
+	yamlBytes, err := yaml.MarshalWithOptions(cellStyle, yaml.Flow(true), yaml.OmitEmpty())
 	if err != nil {
 		return ""
 	}
@@ -72,11 +83,16 @@ func (sr *StyleRegistry) GenerateStyleDefinitions() string {
 	for styleID := range sr.styles {
 		styleIDs = append(styleIDs, styleID)
 	}
-	sort.Strings(styleIDs)
+	slices.SortFunc(styleIDs, func(a, b string) int {
+		// styleID must have number suffix
+		ai, _ := strconv.Atoi(a[1:])
+		bi, _ := strconv.Atoi(b[1:])
+		return ai - bi
+	})
 
 	for _, styleID := range styleIDs {
-		styleMap := sr.styles[styleID]
-		yamlStr := convertStyleMapToYAMLFlow(styleMap)
+		cellStyle := sr.styles[styleID]
+		yamlStr := convertCellStyleToYAMLFlow(cellStyle)
 		if yamlStr != "" {
 			result.WriteString(fmt.Sprintf("<code class=\"style language-yaml\" id=\"%s\">%s</code>\n", styleID, html.EscapeString(yamlStr)))
 		}
@@ -108,7 +124,7 @@ func CreateHTMLTableOfValuesWithStyle(worksheet excel.Worksheet, startCol int, s
 		func(cellRange string) (string, error) {
 			return worksheet.GetValue(cellRange)
 		},
-		func(cellRange string) (map[string]any, error) {
+		func(cellRange string) (*excel.CellStyle, error) {
 			return worksheet.GetCellStyle(cellRange)
 		})
 }
@@ -118,12 +134,12 @@ func CreateHTMLTableOfFormulaWithStyle(worksheet excel.Worksheet, startCol int, 
 		func(cellRange string) (string, error) {
 			return worksheet.GetFormula(cellRange)
 		},
-		func(cellRange string) (map[string]any, error) {
+		func(cellRange string) (*excel.CellStyle, error) {
 			return worksheet.GetCellStyle(cellRange)
 		})
 }
 
-func createHTMLTableWithStyleRegistry(startCol int, startRow int, endCol int, endRow int, extractor func(cellRange string) (string, error), styleExtractor func(cellRange string) (map[string]any, error)) (*string, error) {
+func createHTMLTableWithStyleRegistry(startCol int, startRow int, endCol int, endRow int, extractor func(cellRange string) (string, error), styleExtractor func(cellRange string) (*excel.CellStyle, error)) (*string, error) {
 	registry := NewStyleRegistry()
 
 	// データとスタイルを収集
@@ -148,9 +164,9 @@ func createHTMLTableWithStyleRegistry(startCol int, startRow int, endCol int, en
 
 			var tdTag string
 			if styleExtractor != nil {
-				styleMap, err := styleExtractor(axis)
-				if err == nil && len(styleMap) > 0 {
-					styleID := registry.RegisterStyle(styleMap)
+				cellStyle, err := styleExtractor(axis)
+				if err == nil && cellStyle != nil {
+					styleID := registry.RegisterStyle(cellStyle)
 					if styleID != "" {
 						tdTag = fmt.Sprintf("<td style-ref=\"%s\">", styleID)
 					} else {
@@ -184,7 +200,7 @@ func createHTMLTableWithStyleRegistry(startCol int, startRow int, endCol int, en
 	return &finalResultStr, nil
 }
 
-func createHTMLTableWithStyle(startCol int, startRow int, endCol int, endRow int, extractor func(cellRange string) (string, error), styleExtractor func(cellRange string) (map[string]any, error)) (*string, error) {
+func createHTMLTableWithStyle(startCol int, startRow int, endCol int, endRow int, extractor func(cellRange string) (string, error), styleExtractor func(cellRange string) (*excel.CellStyle, error)) (*string, error) {
 	registry := NewStyleRegistry()
 
 	// データとスタイルを収集
@@ -209,9 +225,9 @@ func createHTMLTableWithStyle(startCol int, startRow int, endCol int, endRow int
 
 			var tdTag string
 			if styleExtractor != nil {
-				styleMap, err := styleExtractor(axis)
-				if err == nil && len(styleMap) > 0 {
-					styleID := registry.RegisterStyle(styleMap)
+				cellStyle, err := styleExtractor(axis)
+				if err == nil && cellStyle != nil {
+					styleID := registry.RegisterStyle(cellStyle)
 					if styleID != "" {
 						tdTag = fmt.Sprintf("<td style-ref=\"%s\">", styleID)
 					} else {
@@ -253,6 +269,18 @@ func AbsolutePathTest() z.Test[*string] {
 			}
 		},
 	}
+}
+
+func convertCellStyleToYAMLFlow(cellStyle *excel.CellStyle) string {
+	if cellStyle == nil {
+		return ""
+	}
+	yamlBytes, err := yaml.MarshalWithOptions(cellStyle, yaml.Flow(true), yaml.OmitEmpty())
+	if err != nil {
+		return ""
+	}
+	yamlStr := strings.TrimSpace(strings.ReplaceAll(string(yamlBytes), "\"", ""))
+	return yamlStr
 }
 
 func convertStyleMapToYAMLFlow(styleMap map[string]any) string {

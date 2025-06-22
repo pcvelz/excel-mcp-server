@@ -373,8 +373,8 @@ func (o *OleWorksheet) AddTable(tableRange string, tableName string) error {
 	return err
 }
 
-func (o *OleWorksheet) GetCellStyle(cell string) (map[string]interface{}, error) {
-	return make(map[string]interface{}), fmt.Errorf("GetCellStyle is not supported in OLE")
+func (o *OleWorksheet) GetCellStyle(cell string) (*CellStyle, error) {
+	return &CellStyle{}, fmt.Errorf("GetCellStyle is not supported in OLE")
 }
 
 func normalizePath(path string) string {

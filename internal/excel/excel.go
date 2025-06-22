@@ -46,7 +46,7 @@ type Worksheet interface {
 	// AddTable adds a table to this worksheet.
 	AddTable(tableRange, tableName string) error
 	// GetCellStyle gets style information for the specified cell.
-	GetCellStyle(cell string) (map[string]interface{}, error)
+	GetCellStyle(cell string) (*CellStyle, error)
 }
 
 type Table struct {
@@ -57,6 +57,37 @@ type Table struct {
 type PivotTable struct {
 	Name  string
 	Range string
+}
+
+type CellStyle struct {
+	Border        []BorderStyle `yaml:"border,omitempty"`
+	Font          *FontStyle    `yaml:"font,omitempty"`
+	Fill          *FillStyle    `yaml:"fill,omitempty"`
+	NumFmt        string        `yaml:"numFmt,omitempty"`
+	DecimalPlaces int           `yaml:"decimalPlaces,omitempty"`
+}
+
+type BorderStyle struct {
+	Type  string          `yaml:"type"`
+	Style BorderStyleName `yaml:"style,omitempty"`
+	Color string          `yaml:"color,omitempty"`
+}
+
+type FontStyle struct {
+	Bold      bool   `yaml:"bold,omitempty"`
+	Italic    bool   `yaml:"italic,omitempty"`
+	Underline string `yaml:"underline,omitempty"`
+	Size      int    `yaml:"size,omitempty"`
+	Strike    bool   `yaml:"strike,omitempty"`
+	Color     string `yaml:"color,omitempty"`
+	VertAlign string `yaml:"vertAlign,omitempty"`
+}
+
+type FillStyle struct {
+	Type    string          `yaml:"type,omitempty"`
+	Pattern FillPatternName `yaml:"pattern,omitempty"`
+	Color   []string        `yaml:"color,omitempty"`
+	Shading FillShadingName `yaml:"shading,omitempty"`
 }
 
 // OpenFile opens an Excel file and returns an Excel interface.
@@ -76,4 +107,134 @@ func OpenFile(absoluteFilePath string) (Excel, func(), error) {
 	return excelize, func() {
 		workbook.Close()
 	}, nil
+}
+
+// BorderStyleName represents border style constants
+type BorderStyleName int
+
+const (
+	BorderStyleNone BorderStyleName = iota
+	BorderStyleContinuous
+	BorderStyleDash
+	BorderStyleDot
+	BorderStyleDouble
+	BorderStyleDashDot
+	BorderStyleDashDotDot
+	BorderStyleSlantDashDot
+	BorderStyleMediumDashDot
+	BorderStyleMediumDashDotDot
+)
+
+var borderStyleNames = map[BorderStyleName]string{
+	BorderStyleNone:             "none",
+	BorderStyleContinuous:       "continuous",
+	BorderStyleDash:             "dash",
+	BorderStyleDot:              "dot",
+	BorderStyleDouble:           "double",
+	BorderStyleDashDot:          "dashDot",
+	BorderStyleDashDotDot:       "dashDotDot",
+	BorderStyleSlantDashDot:     "slantDashDot",
+	BorderStyleMediumDashDot:    "mediumDashDot",
+	BorderStyleMediumDashDotDot: "mediumDashDotDot",
+}
+
+func (b BorderStyleName) String() string {
+	if name, exists := borderStyleNames[b]; exists {
+		return name
+	}
+	return "continuous"
+}
+
+func (b BorderStyleName) MarshalText() ([]byte, error) {
+	return []byte(b.String()), nil
+}
+
+// FillPatternName represents fill pattern constants
+type FillPatternName int
+
+const (
+	FillPatternNone FillPatternName = iota
+	FillPatternSolid
+	FillPatternMediumGray
+	FillPatternDarkGray
+	FillPatternLightGray
+	FillPatternDarkHorizontal
+	FillPatternDarkVertical
+	FillPatternDarkDown
+	FillPatternDarkUp
+	FillPatternDarkGrid
+	FillPatternDarkTrellis
+	FillPatternLightHorizontal
+	FillPatternLightVertical
+	FillPatternLightDown
+	FillPatternLightUp
+	FillPatternLightGrid
+	FillPatternLightTrellis
+	FillPatternGray125
+	FillPatternGray0625
+)
+
+var fillPatternNames = map[FillPatternName]string{
+	FillPatternNone:            "none",
+	FillPatternSolid:           "solid",
+	FillPatternMediumGray:      "mediumGray",
+	FillPatternDarkGray:        "darkGray",
+	FillPatternLightGray:       "lightGray",
+	FillPatternDarkHorizontal:  "darkHorizontal",
+	FillPatternDarkVertical:    "darkVertical",
+	FillPatternDarkDown:        "darkDown",
+	FillPatternDarkUp:          "darkUp",
+	FillPatternDarkGrid:        "darkGrid",
+	FillPatternDarkTrellis:     "darkTrellis",
+	FillPatternLightHorizontal: "lightHorizontal",
+	FillPatternLightVertical:   "lightVertical",
+	FillPatternLightDown:       "lightDown",
+	FillPatternLightUp:         "lightUp",
+	FillPatternLightGrid:       "lightGrid",
+	FillPatternLightTrellis:    "lightTrellis",
+	FillPatternGray125:         "gray125",
+	FillPatternGray0625:        "gray0625",
+}
+
+func (f FillPatternName) String() string {
+	if name, exists := fillPatternNames[f]; exists {
+		return name
+	}
+	return "none"
+}
+
+func (f FillPatternName) MarshalText() ([]byte, error) {
+	return []byte(f.String()), nil
+}
+
+// FillShadingName represents fill shading constants
+type FillShadingName int
+
+const (
+	FillShadingHorizontal FillShadingName = iota
+	FillShadingVertical
+	FillShadingDiagonalDown
+	FillShadingDiagonalUp
+	FillShadingFromCenter
+	FillShadingFromCorner
+)
+
+func (f FillShadingName) String() string {
+	if name, exists := fillShadingNames[f]; exists {
+		return name
+	}
+	return "horizontal"
+}
+
+func (f FillShadingName) MarshalText() ([]byte, error) {
+	return []byte(f.String()), nil
+}
+
+var fillShadingNames = map[FillShadingName]string{
+	FillShadingHorizontal:   "horizontal",
+	FillShadingVertical:     "vertical",
+	FillShadingDiagonalDown: "diagonalDown",
+	FillShadingDiagonalUp:   "diagonalUp",
+	FillShadingFromCenter:   "fromCenter",
+	FillShadingFromCorner:   "fromCorner",
 }
