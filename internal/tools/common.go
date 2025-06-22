@@ -120,7 +120,7 @@ func createHTMLTable(startCol int, startRow int, endCol int, endRow int, extract
 }
 
 func CreateHTMLTableOfValuesWithStyle(worksheet excel.Worksheet, startCol int, startRow int, endCol int, endRow int) (*string, error) {
-	return createHTMLTableWithStyleRegistry(startCol, startRow, endCol, endRow,
+	return createHTMLTableWithStyle(startCol, startRow, endCol, endRow,
 		func(cellRange string) (string, error) {
 			return worksheet.GetValue(cellRange)
 		},
@@ -130,74 +130,13 @@ func CreateHTMLTableOfValuesWithStyle(worksheet excel.Worksheet, startCol int, s
 }
 
 func CreateHTMLTableOfFormulaWithStyle(worksheet excel.Worksheet, startCol int, startRow int, endCol int, endRow int) (*string, error) {
-	return createHTMLTableWithStyleRegistry(startCol, startRow, endCol, endRow,
+	return createHTMLTableWithStyle(startCol, startRow, endCol, endRow,
 		func(cellRange string) (string, error) {
 			return worksheet.GetFormula(cellRange)
 		},
 		func(cellRange string) (*excel.CellStyle, error) {
 			return worksheet.GetCellStyle(cellRange)
 		})
-}
-
-func createHTMLTableWithStyleRegistry(startCol int, startRow int, endCol int, endRow int, extractor func(cellRange string) (string, error), styleExtractor func(cellRange string) (*excel.CellStyle, error)) (*string, error) {
-	registry := NewStyleRegistry()
-
-	// データとスタイルを収集
-	var result strings.Builder
-	result.WriteString("<table>\n<tr><th></th>")
-
-	// 列アドレスの出力
-	for col := startCol; col <= endCol; col++ {
-		name, _ := excelize.ColumnNumberToName(col)
-		result.WriteString(fmt.Sprintf("<th>%s</th>", name))
-	}
-	result.WriteString("</tr>\n")
-
-	// データの出力とスタイル登録
-	for row := startRow; row <= endRow; row++ {
-		result.WriteString("<tr>")
-		result.WriteString(fmt.Sprintf("<th>%d</th>", row))
-
-		for col := startCol; col <= endCol; col++ {
-			axis, _ := excelize.CoordinatesToCellName(col, row)
-			value, _ := extractor(axis)
-
-			var tdTag string
-			if styleExtractor != nil {
-				cellStyle, err := styleExtractor(axis)
-				if err == nil && cellStyle != nil {
-					styleID := registry.RegisterStyle(cellStyle)
-					if styleID != "" {
-						tdTag = fmt.Sprintf("<td style-ref=\"%s\">", styleID)
-					} else {
-						tdTag = "<td>"
-					}
-				} else {
-					tdTag = "<td>"
-				}
-			} else {
-				tdTag = "<td>"
-			}
-
-			result.WriteString(fmt.Sprintf("%s%s</td>", tdTag, strings.ReplaceAll(html.EscapeString(value), "\n", "<br>")))
-		}
-		result.WriteString("</tr>\n")
-	}
-
-	result.WriteString("</table>")
-
-	// スタイル定義とテーブルを結合
-	var finalResult strings.Builder
-	styleDefinitions := registry.GenerateStyleDefinitions()
-	if styleDefinitions != "" {
-		finalResult.WriteString(styleDefinitions)
-	}
-
-	finalResult.WriteString("<h2>Sheet Data</h2>\n")
-	finalResult.WriteString(result.String())
-
-	finalResultStr := finalResult.String()
-	return &finalResultStr, nil
 }
 
 func createHTMLTableWithStyle(startCol int, startRow int, endCol int, endRow int, extractor func(cellRange string) (string, error), styleExtractor func(cellRange string) (*excel.CellStyle, error)) (*string, error) {
@@ -260,6 +199,7 @@ func createHTMLTableWithStyle(startCol int, startRow int, endCol int, endRow int
 	finalResultStr := finalResult.String()
 	return &finalResultStr, nil
 }
+
 
 func AbsolutePathTest() z.Test[*string] {
 	return z.Test[*string]{
