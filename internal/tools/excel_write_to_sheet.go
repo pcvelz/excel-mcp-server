@@ -104,6 +104,17 @@ func writeSheet(fileAbsolutePath string, sheetName string, newSheet bool, rangeS
 	}
 	defer closeFn()
 
+	startCol, startRow, endCol, endRow, err := excel.ParseRange(rangeStr)
+	if err != nil {
+		return imcp.NewToolResultInvalidArgumentError(err.Error()), nil
+	}
+
+	// データの整合性チェック
+	rangeRowSize := endRow - startRow + 1
+	if len(values) != rangeRowSize {
+		return imcp.NewToolResultInvalidArgumentError(fmt.Sprintf("number of rows in data (%d) does not match range size (%d)", len(values), rangeRowSize)), nil
+	}
+
 	if newSheet {
 		if err := workbook.CreateNewSheet(sheetName); err != nil {
 			return nil, err
@@ -116,17 +127,6 @@ func writeSheet(fileAbsolutePath string, sheetName string, newSheet bool, rangeS
 		return imcp.NewToolResultInvalidArgumentError(err.Error()), nil
 	}
 	defer worksheet.Release()
-
-	startCol, startRow, endCol, endRow, err := excel.ParseRange(rangeStr)
-	if err != nil {
-		return imcp.NewToolResultInvalidArgumentError(err.Error()), nil
-	}
-
-	// データの整合性チェック
-	rangeRowSize := endRow - startRow + 1
-	if len(values) != rangeRowSize {
-		return imcp.NewToolResultInvalidArgumentError(fmt.Sprintf("number of rows in data (%d) does not match range size (%d)", len(values), rangeRowSize)), nil
-	}
 
 	// データの書き込み
 	wroteFormula := false
