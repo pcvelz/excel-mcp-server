@@ -19,6 +19,7 @@ type OleExcel struct {
 }
 
 type OleWorksheet struct {
+	workbook  *ole.IDispatch
 	worksheet *ole.IDispatch
 }
 
@@ -104,6 +105,7 @@ func (o *OleExcel) GetSheets() ([]Worksheet, error) {
 	for i := 1; i <= count; i++ {
 		worksheet := oleutil.MustGetProperty(worksheets, "Item", i).ToIDispatch()
 		worksheetList[i-1] = &OleWorksheet{
+			workbook:  o.workbook,
 			worksheet: worksheet,
 		}
 	}
@@ -122,6 +124,7 @@ func (o *OleExcel) FindSheet(sheetName string) (Worksheet, error) {
 
 		if name == sheetName {
 			return &OleWorksheet{
+				workbook:  o.workbook,
 				worksheet: worksheet,
 			}, nil
 		}
@@ -374,15 +377,87 @@ func (o *OleWorksheet) AddTable(tableRange string, tableName string) error {
 }
 
 func (o *OleWorksheet) GetCellStyle(cell string) (*CellStyle, error) {
-	return getCellStyleFromRange(o.worksheet, cell)
+	rng := oleutil.MustGetProperty(o.worksheet, "Range", cell).ToIDispatch()
+	defer rng.Release()
+
+	style := &CellStyle{}
+
+	// Get Font information
+	font := oleutil.MustGetProperty(rng, "Font").ToIDispatch()
+	defer font.Release()
+
+	fontSize := int(oleutil.MustGetProperty(font, "Size").Value().(float64))
+	fontBold := oleutil.MustGetProperty(font, "Bold").Value().(bool)
+	fontItalic := oleutil.MustGetProperty(font, "Italic").Value().(bool)
+	fontColor := oleutil.MustGetProperty(font, "Color").Value().(float64)
+
+	style.Font = &FontStyle{
+		Bold:   fontBold,
+		Italic: fontItalic,
+		Size:   fontSize,
+		Color:  bgrToRgb(fontColor),
+	}
+
+	// Get Interior (fill) information
+	interior := oleutil.MustGetProperty(rng, "Interior").ToIDispatch()
+	defer interior.Release()
+
+	interiorColor := oleutil.MustGetProperty(interior, "Color").Value().(float64)
+	interiorPattern := oleutil.MustGetProperty(interior, "Pattern").Value().(int32)
+
+	style.Fill = &FillStyle{
+		Type:    "pattern",
+		Pattern: excelPatternToFillPattern(interiorPattern),
+		Color:   []string{bgrToRgb(interiorColor)},
+	}
+
+	// Get Border information
+	borders := oleutil.MustGetProperty(rng, "Borders").ToIDispatch()
+	defer borders.Release()
+
+	borderStyles := make([]BorderStyle, 0, 4)
+
+	// Get borders for each direction: Left(7), Top(8), Bottom(9), Right(10)
+	borderPositions := []struct {
+		index    int
+		position string
+	}{
+		{7, "left"},
+		{8, "top"},
+		{9, "bottom"},
+		{10, "right"},
+	}
+
+	for _, pos := range borderPositions {
+		border := oleutil.MustGetProperty(borders, "Item", pos.index).ToIDispatch()
+		defer border.Release()
+
+		borderColor := oleutil.MustGetProperty(border, "Color").Value().(float64)
+		borderLineStyle := oleutil.MustGetProperty(border, "LineStyle").Value().(int32)
+
+		// Only add border if it has a style (not xlLineStyleNone)
+		if borderLineStyle != -4142 {
+			borderStyle := BorderStyle{
+				Type:  pos.position,
+				Style: excelBorderStyleToName(borderLineStyle),
+				Color: bgrToRgb(borderColor),
+			}
+			borderStyles = append(borderStyles, borderStyle)
+		}
+	}
+
+	style.Border = borderStyles
+
+	return style, nil
 }
 
 // bgrToRgb converts BGR color format to RGB hex string
-func bgrToRgb(bgrColor int32) string {
+func bgrToRgb(bgrColor float64) string {
+	bgrColorInt := int32(bgrColor)
 	// Extract RGB components from BGR format
-	r := (bgrColor >> 0) & 0xFF
-	g := (bgrColor >> 8) & 0xFF
-	b := (bgrColor >> 16) & 0xFF
+	r := (bgrColorInt >> 0) & 0xFF
+	g := (bgrColorInt >> 8) & 0xFF
+	b := (bgrColorInt >> 16) & 0xFF
 	return fmt.Sprintf("#%02X%02X%02X", r, g, b)
 }
 
@@ -410,79 +485,64 @@ func excelBorderStyleToName(excelStyle int32) BorderStyleName {
 	}
 }
 
-// getCellStyleFromRange extracts style information from a cell range
-func getCellStyleFromRange(worksheet *ole.IDispatch, cell string) (*CellStyle, error) {
-	rng := oleutil.MustGetProperty(worksheet, "Range", cell).ToIDispatch()
-	defer rng.Release()
-
-	style := &CellStyle{}
-
-	// Get Font information
-	font := oleutil.MustGetProperty(rng, "Font").ToIDispatch()
-	defer font.Release()
-
-	fontSize := int(oleutil.MustGetProperty(font, "Size").Value().(float64))
-	fontBold := oleutil.MustGetProperty(font, "Bold").Value().(bool)
-	fontItalic := oleutil.MustGetProperty(font, "Italic").Value().(bool)
-	fontColor := oleutil.MustGetProperty(font, "Color").Value().(int32)
-
-	style.Font = &FontStyle{
-		Bold:   fontBold,
-		Italic: fontItalic,
-		Size:   fontSize,
-		Color:  bgrToRgb(fontColor),
+// excelPatternToFillPattern converts Excel XlPattern constant to FillPatternName
+func excelPatternToFillPattern(excelPattern int32) FillPatternName {
+	switch excelPattern {
+	case -4142: // xlPatternNone
+		return FillPatternNone
+	case 1: // xlPatternSolid
+		return FillPatternSolid
+	case -4125: // xlPatternGray75
+		return FillPatternDarkGray
+	case -4124: // xlPatternGray50
+		return FillPatternMediumGray
+	case -4126: // xlPatternGray25
+		return FillPatternLightGray
+	case -4121: // xlPatternGray16
+		return FillPatternGray125
+	case -4127: // xlPatternGray8
+		return FillPatternGray0625
+	case 9: // xlPatternHorizontal
+		return FillPatternLightHorizontal
+	case 12: // xlPatternVertical
+		return FillPatternLightVertical
+	case 10: // xlPatternDown
+		return FillPatternLightDown
+	case 11: // xlPatternUp
+		return FillPatternLightUp
+	case 16: // xlPatternGrid
+		return FillPatternLightGrid
+	case 17: // xlPatternCrissCross
+		return FillPatternLightTrellis
+	case 5: // xlPatternLightHorizontal
+		return FillPatternLightHorizontal
+	case 6: // xlPatternLightVertical
+		return FillPatternLightVertical
+	case 7: // xlPatternLightDown
+		return FillPatternLightDown
+	case 8: // xlPatternLightUp
+		return FillPatternLightUp
+	case 15: // xlPatternLightGrid
+		return FillPatternLightGrid
+	case 18: // xlPatternLightTrellis
+		return FillPatternLightTrellis
+	case 13: // xlPatternSemiGray75
+		return FillPatternDarkHorizontal
+	case 2: // xlPatternDarkHorizontal
+		return FillPatternDarkHorizontal
+	case 3: // xlPatternDarkVertical
+		return FillPatternDarkVertical
+	case 4: // xlPatternDarkDown
+		return FillPatternDarkDown
+	case 14: // xlPatternDarkUp
+		return FillPatternDarkUp
+	case -4162: // xlPatternDarkGrid
+		return FillPatternDarkGrid
+	case -4166: // xlPatternDarkTrellis
+		return FillPatternDarkTrellis
+	default:
+		return FillPatternNone
 	}
-
-	// Get Interior (fill) information
-	interior := oleutil.MustGetProperty(rng, "Interior").ToIDispatch()
-	defer interior.Release()
-
-	interiorColor := oleutil.MustGetProperty(interior, "Color").Value().(int32)
-	
-	style.Fill = &FillStyle{
-		Type:    "pattern",
-		Pattern: FillPatternSolid,
-		Color:   []string{bgrToRgb(interiorColor)},
-	}
-
-	// Get Border information
-	borders := oleutil.MustGetProperty(rng, "Borders").ToIDispatch()
-	defer borders.Release()
-
-	borderStyles := make([]BorderStyle, 0, 4)
-
-	// Get borders for each direction: Left(7), Top(8), Bottom(9), Right(10)
-	borderPositions := []struct {
-		index    int
-		position string
-	}{
-		{7, "left"},
-		{8, "top"},
-		{9, "bottom"},
-		{10, "right"},
-	}
-
-	for _, pos := range borderPositions {
-		border := oleutil.MustGetProperty(borders, "Item", pos.index).ToIDispatch()
-		defer border.Release()
-
-		borderColor := oleutil.MustGetProperty(border, "Color").Value().(int32)
-		borderLineStyle := oleutil.MustGetProperty(border, "LineStyle").Value().(int32)
-
-		// Only add border if it has a style (not xlLineStyleNone)
-		if borderLineStyle != -4142 {
-			borderStyle := BorderStyle{
-				Type:  pos.position,
-				Style: excelBorderStyleToName(borderLineStyle),
-				Color: bgrToRgb(borderColor),
-			}
-			borderStyles = append(borderStyles, borderStyle)
-		}
-	}
-
-	style.Border = borderStyles
-
-	return style, nil
 }
 
 func normalizePath(path string) string {
