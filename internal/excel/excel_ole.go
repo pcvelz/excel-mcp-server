@@ -34,6 +34,8 @@ func NewExcelOle(absolutePath string) (*OleExcel, func(), error) {
 	if err != nil {
 		return nil, func() {}, err
 	}
+	oleutil.MustPutProperty(excel, "ScreenUpdating", false)
+	oleutil.MustPutProperty(excel, "EnableEvents", false)
 	workbooks := oleutil.MustGetProperty(excel, "Workbooks").ToIDispatch()
 	c := oleutil.MustGetProperty(workbooks, "Count").Val
 	for i := 1; i <= int(c); i++ {
@@ -45,6 +47,8 @@ func NewExcelOle(absolutePath string) (*OleExcel, func(), error) {
 			// If the absolutePath is not writable, it assumes that the workbook has opened by WOPI.
 			if FileIsNotWritable(absolutePath) {
 				return &OleExcel{workbook: workbook}, func() {
+					oleutil.MustPutProperty(excel, "EnableEvents", true)
+					oleutil.MustPutProperty(excel, "ScreenUpdating", true)
 					workbook.Release()
 					workbooks.Release()
 					excel.Release()
@@ -55,6 +59,8 @@ func NewExcelOle(absolutePath string) (*OleExcel, func(), error) {
 			}
 		} else if normalizePath(fullName) == normalizePath(absolutePath) {
 			return &OleExcel{workbook: workbook}, func() {
+				oleutil.MustPutProperty(excel, "EnableEvents", true)
+				oleutil.MustPutProperty(excel, "ScreenUpdating", true)
 				workbook.Release()
 				workbooks.Release()
 				excel.Release()
@@ -402,20 +408,20 @@ func (o *OleWorksheet) GetCellStyle(cell string) (*CellStyle, error) {
 	interior := oleutil.MustGetProperty(rng, "Interior").ToIDispatch()
 	defer interior.Release()
 
-	interiorColor := oleutil.MustGetProperty(interior, "Color").Value().(float64)
-	interiorPattern := oleutil.MustGetProperty(interior, "Pattern").Value().(int32)
+	interiorPattern := excelPatternToFillPattern(oleutil.MustGetProperty(interior, "Pattern").Value().(int32))
 
-	style.Fill = &FillStyle{
-		Type:    "pattern",
-		Pattern: excelPatternToFillPattern(interiorPattern),
-		Color:   []string{bgrToRgb(interiorColor)},
+	if interiorPattern != FillPatternNone {
+		interiorColor := oleutil.MustGetProperty(interior, "Color").Value().(float64)
+
+		style.Fill = &FillStyle{
+			Type:    "pattern",
+			Pattern: interiorPattern,
+			Color:   []string{bgrToRgb(interiorColor)},
+		}
 	}
 
 	// Get Border information
-	borders := oleutil.MustGetProperty(rng, "Borders").ToIDispatch()
-	defer borders.Release()
-
-	borderStyles := make([]BorderStyle, 0, 4)
+	var borderStyles []BorderStyle
 
 	// Get borders for each direction: Left(7), Top(8), Bottom(9), Right(10)
 	borderPositions := []struct {
@@ -429,23 +435,21 @@ func (o *OleWorksheet) GetCellStyle(cell string) (*CellStyle, error) {
 	}
 
 	for _, pos := range borderPositions {
-		border := oleutil.MustGetProperty(borders, "Item", pos.index).ToIDispatch()
+		border := oleutil.MustGetProperty(rng, "Borders", pos.index).ToIDispatch()
 		defer border.Release()
 
-		borderColor := oleutil.MustGetProperty(border, "Color").Value().(float64)
-		borderLineStyle := oleutil.MustGetProperty(border, "LineStyle").Value().(int32)
+		borderLineStyle := excelBorderStyleToName(oleutil.MustGetProperty(border, "LineStyle").Value().(int32))
 
-		// Only add border if it has a style (not xlLineStyleNone)
-		if borderLineStyle != -4142 {
+		if borderLineStyle != BorderStyleNone {
+			borderColor := oleutil.MustGetProperty(border, "Color").Value().(float64)
 			borderStyle := BorderStyle{
 				Type:  pos.position,
-				Style: excelBorderStyleToName(borderLineStyle),
+				Style: borderLineStyle,
 				Color: bgrToRgb(borderColor),
 			}
 			borderStyles = append(borderStyles, borderStyle)
 		}
 	}
-
 	style.Border = borderStyles
 
 	return style, nil
