@@ -17,6 +17,7 @@ type ExcelReadSheetArguments struct {
 	SheetName        string `zog:"sheetName"`
 	Range            string `zog:"range"`
 	ShowFormula      bool   `zog:"showFormula"`
+	ShowStyle        bool   `zog:"showStyle"`
 }
 
 var excelReadSheetArgumentsSchema = z.Struct(z.Schema{
@@ -24,6 +25,7 @@ var excelReadSheetArgumentsSchema = z.Struct(z.Schema{
 	"sheetName":        z.String().Required(),
 	"range":            z.String(),
 	"showFormula":      z.Bool().Default(false),
+	"showStyle":        z.Bool().Default(false),
 })
 
 func AddExcelReadSheetTool(server *server.MCPServer) {
@@ -43,6 +45,9 @@ func AddExcelReadSheetTool(server *server.MCPServer) {
 		mcp.WithBoolean("showFormula",
 			mcp.Description("Show formula instead of value"),
 		),
+		mcp.WithBoolean("showStyle",
+			mcp.Description("Show style information for cells"),
+		),
 	), handleReadSheet)
 }
 
@@ -51,10 +56,10 @@ func handleReadSheet(ctx context.Context, request mcp.CallToolRequest) (*mcp.Cal
 	if issues := excelReadSheetArgumentsSchema.Parse(request.Params.Arguments, &args); len(issues) != 0 {
 		return imcp.NewToolResultZogIssueMap(issues), nil
 	}
-	return readSheet(args.FileAbsolutePath, args.SheetName, args.Range, args.ShowFormula)
+	return readSheet(args.FileAbsolutePath, args.SheetName, args.Range, args.ShowFormula, args.ShowStyle)
 }
 
-func readSheet(fileAbsolutePath string, sheetName string, valueRange string, showFormula bool) (*mcp.CallToolResult, error) {
+func readSheet(fileAbsolutePath string, sheetName string, valueRange string, showFormula bool, showStyle bool) (*mcp.CallToolResult, error) {
 	config, issues := LoadConfig()
 	if issues != nil {
 		return imcp.NewToolResultZogIssueMap(issues), nil
@@ -107,10 +112,18 @@ func readSheet(fileAbsolutePath string, sheetName string, valueRange string, sho
 
 	// HTMLテーブルの生成
 	var table *string
-	if showFormula {
-		table, err = CreateHTMLTableOfFormula(worksheet, startCol, startRow, endCol, endRow)
+	if showStyle {
+		if showFormula {
+			table, err = CreateHTMLTableOfFormulaWithStyle(worksheet, startCol, startRow, endCol, endRow)
+		} else {
+			table, err = CreateHTMLTableOfValuesWithStyle(worksheet, startCol, startRow, endCol, endRow)
+		}
 	} else {
-		table, err = CreateHTMLTableOfValues(worksheet, startCol, startRow, endCol, endRow)
+		if showFormula {
+			table, err = CreateHTMLTableOfFormula(worksheet, startCol, startRow, endCol, endRow)
+		} else {
+			table, err = CreateHTMLTableOfValues(worksheet, startCol, startRow, endCol, endRow)
+		}
 	}
 	if err != nil {
 		return nil, err

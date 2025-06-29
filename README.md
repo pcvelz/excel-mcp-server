@@ -96,7 +96,9 @@ Read values from Excel sheet with pagination.
 - `range`
     - Range of cells to read in the Excel sheet (e.g., "A1:C10"). [default: first paging range]
 - `showFormula`
-    - Show formula instead of value
+    - Show formula instead of value [default: false]
+- `showStyle`
+    - Show style information for cells [default: false]
 
 ### `excel_screen_capture`
 

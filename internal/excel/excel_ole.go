@@ -3,17 +3,15 @@ package excel
 import (
 	"bufio"
 	"bytes"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"path/filepath"
 	"strings"
 
-	"encoding/base64"
-
-	"github.com/skanehira/clipboard-image"
-
 	"github.com/go-ole/go-ole"
 	"github.com/go-ole/go-ole/oleutil"
+	"github.com/skanehira/clipboard-image"
 )
 
 type OleExcel struct {
@@ -21,6 +19,7 @@ type OleExcel struct {
 }
 
 type OleWorksheet struct {
+	workbook  *ole.IDispatch
 	worksheet *ole.IDispatch
 }
 
@@ -35,6 +34,8 @@ func NewExcelOle(absolutePath string) (*OleExcel, func(), error) {
 	if err != nil {
 		return nil, func() {}, err
 	}
+	oleutil.MustPutProperty(excel, "ScreenUpdating", false)
+	oleutil.MustPutProperty(excel, "EnableEvents", false)
 	workbooks := oleutil.MustGetProperty(excel, "Workbooks").ToIDispatch()
 	c := oleutil.MustGetProperty(workbooks, "Count").Val
 	for i := 1; i <= int(c); i++ {
@@ -46,6 +47,8 @@ func NewExcelOle(absolutePath string) (*OleExcel, func(), error) {
 			// If the absolutePath is not writable, it assumes that the workbook has opened by WOPI.
 			if FileIsNotWritable(absolutePath) {
 				return &OleExcel{workbook: workbook}, func() {
+					oleutil.MustPutProperty(excel, "EnableEvents", true)
+					oleutil.MustPutProperty(excel, "ScreenUpdating", true)
 					workbook.Release()
 					workbooks.Release()
 					excel.Release()
@@ -56,6 +59,8 @@ func NewExcelOle(absolutePath string) (*OleExcel, func(), error) {
 			}
 		} else if normalizePath(fullName) == normalizePath(absolutePath) {
 			return &OleExcel{workbook: workbook}, func() {
+				oleutil.MustPutProperty(excel, "EnableEvents", true)
+				oleutil.MustPutProperty(excel, "ScreenUpdating", true)
 				workbook.Release()
 				workbooks.Release()
 				excel.Release()
@@ -106,6 +111,7 @@ func (o *OleExcel) GetSheets() ([]Worksheet, error) {
 	for i := 1; i <= count; i++ {
 		worksheet := oleutil.MustGetProperty(worksheets, "Item", i).ToIDispatch()
 		worksheetList[i-1] = &OleWorksheet{
+			workbook:  o.workbook,
 			worksheet: worksheet,
 		}
 	}
@@ -124,6 +130,7 @@ func (o *OleExcel) FindSheet(sheetName string) (Worksheet, error) {
 
 		if name == sheetName {
 			return &OleWorksheet{
+				workbook:  o.workbook,
 				worksheet: worksheet,
 			}, nil
 		}
@@ -373,6 +380,173 @@ func (o *OleWorksheet) AddTable(tableRange string, tableName string) error {
 		return err
 	}
 	return err
+}
+
+func (o *OleWorksheet) GetCellStyle(cell string) (*CellStyle, error) {
+	rng := oleutil.MustGetProperty(o.worksheet, "Range", cell).ToIDispatch()
+	defer rng.Release()
+
+	style := &CellStyle{}
+
+	// Get Font information
+	font := oleutil.MustGetProperty(rng, "Font").ToIDispatch()
+	defer font.Release()
+
+	fontSize := int(oleutil.MustGetProperty(font, "Size").Value().(float64))
+	fontBold := oleutil.MustGetProperty(font, "Bold").Value().(bool)
+	fontItalic := oleutil.MustGetProperty(font, "Italic").Value().(bool)
+	fontColor := oleutil.MustGetProperty(font, "Color").Value().(float64)
+
+	style.Font = &FontStyle{
+		Bold:   fontBold,
+		Italic: fontItalic,
+		Size:   fontSize,
+		Color:  bgrToRgb(fontColor),
+	}
+
+	// Get Interior (fill) information
+	interior := oleutil.MustGetProperty(rng, "Interior").ToIDispatch()
+	defer interior.Release()
+
+	interiorPattern := excelPatternToFillPattern(oleutil.MustGetProperty(interior, "Pattern").Value().(int32))
+
+	if interiorPattern != FillPatternNone {
+		interiorColor := oleutil.MustGetProperty(interior, "Color").Value().(float64)
+
+		style.Fill = &FillStyle{
+			Type:    "pattern",
+			Pattern: interiorPattern,
+			Color:   []string{bgrToRgb(interiorColor)},
+		}
+	}
+
+	// Get Border information
+	var borderStyles []BorderStyle
+
+	// Get borders for each direction: Left(7), Top(8), Bottom(9), Right(10)
+	borderPositions := []struct {
+		index    int
+		position string
+	}{
+		{7, "left"},
+		{8, "top"},
+		{9, "bottom"},
+		{10, "right"},
+	}
+
+	for _, pos := range borderPositions {
+		border := oleutil.MustGetProperty(rng, "Borders", pos.index).ToIDispatch()
+		defer border.Release()
+
+		borderLineStyle := excelBorderStyleToName(oleutil.MustGetProperty(border, "LineStyle").Value().(int32))
+
+		if borderLineStyle != BorderStyleNone {
+			borderColor := oleutil.MustGetProperty(border, "Color").Value().(float64)
+			borderStyle := BorderStyle{
+				Type:  pos.position,
+				Style: borderLineStyle,
+				Color: bgrToRgb(borderColor),
+			}
+			borderStyles = append(borderStyles, borderStyle)
+		}
+	}
+	style.Border = borderStyles
+
+	return style, nil
+}
+
+// bgrToRgb converts BGR color format to RGB hex string
+func bgrToRgb(bgrColor float64) string {
+	bgrColorInt := int32(bgrColor)
+	// Extract RGB components from BGR format
+	r := (bgrColorInt >> 0) & 0xFF
+	g := (bgrColorInt >> 8) & 0xFF
+	b := (bgrColorInt >> 16) & 0xFF
+	return fmt.Sprintf("#%02X%02X%02X", r, g, b)
+}
+
+// excelBorderStyleToName converts Excel border style constant to BorderStyleName
+func excelBorderStyleToName(excelStyle int32) BorderStyleName {
+	switch excelStyle {
+	case 1: // xlContinuous
+		return BorderStyleContinuous
+	case -4115: // xlDash
+		return BorderStyleDash
+	case -4118: // xlDot
+		return BorderStyleDot
+	case -4119: // xlDouble
+		return BorderStyleDouble
+	case 4: // xlDashDot
+		return BorderStyleDashDot
+	case 5: // xlDashDotDot
+		return BorderStyleDashDotDot
+	case 13: // xlSlantDashDot
+		return BorderStyleSlantDashDot
+	case -4142: // xlLineStyleNone
+		return BorderStyleNone
+	default:
+		return BorderStyleNone
+	}
+}
+
+// excelPatternToFillPattern converts Excel XlPattern constant to FillPatternName
+func excelPatternToFillPattern(excelPattern int32) FillPatternName {
+	switch excelPattern {
+	case -4142: // xlPatternNone
+		return FillPatternNone
+	case 1: // xlPatternSolid
+		return FillPatternSolid
+	case -4125: // xlPatternGray75
+		return FillPatternDarkGray
+	case -4124: // xlPatternGray50
+		return FillPatternMediumGray
+	case -4126: // xlPatternGray25
+		return FillPatternLightGray
+	case -4121: // xlPatternGray16
+		return FillPatternGray125
+	case -4127: // xlPatternGray8
+		return FillPatternGray0625
+	case 9: // xlPatternHorizontal
+		return FillPatternLightHorizontal
+	case 12: // xlPatternVertical
+		return FillPatternLightVertical
+	case 10: // xlPatternDown
+		return FillPatternLightDown
+	case 11: // xlPatternUp
+		return FillPatternLightUp
+	case 16: // xlPatternGrid
+		return FillPatternLightGrid
+	case 17: // xlPatternCrissCross
+		return FillPatternLightTrellis
+	case 5: // xlPatternLightHorizontal
+		return FillPatternLightHorizontal
+	case 6: // xlPatternLightVertical
+		return FillPatternLightVertical
+	case 7: // xlPatternLightDown
+		return FillPatternLightDown
+	case 8: // xlPatternLightUp
+		return FillPatternLightUp
+	case 15: // xlPatternLightGrid
+		return FillPatternLightGrid
+	case 18: // xlPatternLightTrellis
+		return FillPatternLightTrellis
+	case 13: // xlPatternSemiGray75
+		return FillPatternDarkHorizontal
+	case 2: // xlPatternDarkHorizontal
+		return FillPatternDarkHorizontal
+	case 3: // xlPatternDarkVertical
+		return FillPatternDarkVertical
+	case 4: // xlPatternDarkDown
+		return FillPatternDarkDown
+	case 14: // xlPatternDarkUp
+		return FillPatternDarkUp
+	case -4162: // xlPatternDarkGrid
+		return FillPatternDarkGrid
+	case -4166: // xlPatternDarkTrellis
+		return FillPatternDarkTrellis
+	default:
+		return FillPatternNone
+	}
 }
 
 func normalizePath(path string) string {

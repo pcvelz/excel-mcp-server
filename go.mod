@@ -7,6 +7,7 @@ toolchain go1.24.0
 require (
 	github.com/Oudwins/zog v0.21.0
 	github.com/go-ole/go-ole v1.3.0
+	github.com/goccy/go-yaml v1.18.0
 	github.com/mark3labs/mcp-go v0.18.0
 	github.com/skanehira/clipboard-image v1.0.0
 	github.com/xuri/excelize/v2 v2.9.0

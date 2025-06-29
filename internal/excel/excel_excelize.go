@@ -210,6 +210,179 @@ func (w *ExcelizeWorksheet) AddTable(tableRange, tableName string) error {
 	return nil
 }
 
+func (w *ExcelizeWorksheet) GetCellStyle(cell string) (*CellStyle, error) {
+	styleID, err := w.file.GetCellStyle(w.sheetName, cell)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get cell style: %w", err)
+	}
+
+	style, err := w.file.GetStyle(styleID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get style details: %w", err)
+	}
+
+	return convertExcelizeStyleToCellStyle(style), nil
+}
+
+func convertExcelizeStyleToCellStyle(style *excelize.Style) *CellStyle {
+	result := &CellStyle{}
+
+	// Border
+	if len(style.Border) > 0 {
+		var borders []BorderStyle
+		for _, border := range style.Border {
+			borderStyle := BorderStyle{
+				Type: border.Type,
+			}
+			if border.Color != "" {
+				borderStyle.Color = "#" + strings.ToUpper(border.Color)
+			}
+			if border.Style != 0 {
+				borderStyle.Style = intToBorderStyleName(border.Style)
+			}
+			borders = append(borders, borderStyle)
+		}
+		if len(borders) > 0 {
+			result.Border = borders
+		}
+	}
+
+	// Font
+	if style.Font != nil {
+		font := &FontStyle{}
+		if style.Font.Bold {
+			font.Bold = true
+		}
+		if style.Font.Italic {
+			font.Italic = true
+		}
+		if style.Font.Underline != "" {
+			font.Underline = style.Font.Underline
+		}
+		if style.Font.Size > 0 {
+			font.Size = int(style.Font.Size)
+		}
+		if style.Font.Strike {
+			font.Strike = true
+		}
+		if style.Font.Color != "" {
+			font.Color = "#" + strings.ToUpper(style.Font.Color)
+		}
+		if style.Font.VertAlign != "" {
+			font.VertAlign = style.Font.VertAlign
+		}
+		if font.Bold || font.Italic || font.Underline != "" || font.Size > 0 || font.Strike || font.Color != "" || font.VertAlign != "" {
+			result.Font = font
+		}
+	}
+
+	// Fill
+	if style.Fill.Type != "" || style.Fill.Pattern != 0 || len(style.Fill.Color) > 0 {
+		fill := &FillStyle{}
+		if style.Fill.Type != "" {
+			fill.Type = style.Fill.Type
+		}
+		if style.Fill.Pattern != 0 {
+			fill.Pattern = intToFillPatternName(style.Fill.Pattern)
+		}
+		if len(style.Fill.Color) > 0 {
+			var colors []string
+			for _, color := range style.Fill.Color {
+				if color != "" {
+					colors = append(colors, "#"+strings.ToUpper(color))
+				}
+			}
+			if len(colors) > 0 {
+				fill.Color = colors
+			}
+		}
+		if style.Fill.Shading != 0 {
+			fill.Shading = intToFillShadingName(style.Fill.Shading)
+		}
+		if fill.Type != "" || fill.Pattern != FillPatternNone || len(fill.Color) > 0 || fill.Shading != FillShadingHorizontal {
+			result.Fill = fill
+		}
+	}
+
+	// NumFmt
+	if style.CustomNumFmt != nil && *style.CustomNumFmt != "" {
+		result.NumFmt = *style.CustomNumFmt
+	}
+
+	// DecimalPlaces
+	if style.DecimalPlaces != nil && *style.DecimalPlaces != 0 {
+		result.DecimalPlaces = *style.DecimalPlaces
+	}
+	
+	return result
+}
+
+func intToBorderStyleName(style int) BorderStyleName {
+	styles := map[int]BorderStyleName{
+		0:  BorderStyleNone,
+		1:  BorderStyleContinuous,
+		2:  BorderStyleContinuous,
+		3:  BorderStyleDash,
+		4:  BorderStyleDot,
+		5:  BorderStyleContinuous,
+		6:  BorderStyleDouble,
+		7:  BorderStyleContinuous,
+		8:  BorderStyleDashDot,
+		9:  BorderStyleDashDotDot,
+		10: BorderStyleSlantDashDot,
+		11: BorderStyleContinuous,
+		12: BorderStyleMediumDashDot,
+		13: BorderStyleMediumDashDotDot,
+	}
+	if name, exists := styles[style]; exists {
+		return name
+	}
+	return BorderStyleContinuous
+}
+
+func intToFillPatternName(pattern int) FillPatternName {
+	patterns := map[int]FillPatternName{
+		0:  FillPatternNone,
+		1:  FillPatternSolid,
+		2:  FillPatternMediumGray,
+		3:  FillPatternDarkGray,
+		4:  FillPatternLightGray,
+		5:  FillPatternDarkHorizontal,
+		6:  FillPatternDarkVertical,
+		7:  FillPatternDarkDown,
+		8:  FillPatternDarkUp,
+		9:  FillPatternDarkGrid,
+		10: FillPatternDarkTrellis,
+		11: FillPatternLightHorizontal,
+		12: FillPatternLightVertical,
+		13: FillPatternLightDown,
+		14: FillPatternLightUp,
+		15: FillPatternLightGrid,
+		16: FillPatternLightTrellis,
+		17: FillPatternGray125,
+		18: FillPatternGray0625,
+	}
+	if name, exists := patterns[pattern]; exists {
+		return name
+	}
+	return FillPatternNone
+}
+
+func intToFillShadingName(shading int) FillShadingName {
+	shadings := map[int]FillShadingName{
+		0: FillShadingHorizontal,
+		1: FillShadingVertical,
+		2: FillShadingDiagonalDown,
+		3: FillShadingDiagonalUp,
+		4: FillShadingFromCenter,
+		5: FillShadingFromCorner,
+	}
+	if name, exists := shadings[shading]; exists {
+		return name
+	}
+	return FillShadingHorizontal
+}
+
 // updateDimention updates the dimension of the worksheet after a cell is updated.
 func (w *ExcelizeWorksheet) updateDimension(updatedCell string) error {
 	dimension, err := w.file.GetSheetDimension(w.sheetName)
