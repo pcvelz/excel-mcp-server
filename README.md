@@ -98,7 +98,7 @@ Read values from Excel sheet with pagination.
 - `showFormula`
     - Show formula instead of value [default: false]
 - `showStyle`
-    - Show style information for cells [default: true]
+    - Show style information for cells [default: false]
 
 ### `excel_screen_capture`
 

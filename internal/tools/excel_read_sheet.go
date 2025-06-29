@@ -25,7 +25,7 @@ var excelReadSheetArgumentsSchema = z.Struct(z.Schema{
 	"sheetName":        z.String().Required(),
 	"range":            z.String(),
 	"showFormula":      z.Bool().Default(false),
-	"showStyle":        z.Bool().Default(true),
+	"showStyle":        z.Bool().Default(false),
 })
 
 func AddExcelReadSheetTool(server *server.MCPServer) {
