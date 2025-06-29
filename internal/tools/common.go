@@ -18,36 +18,95 @@ import (
 )
 
 type StyleRegistry struct {
-	styles   map[string]*excel.CellStyle // styleID -> CellStyle
-	hashToID map[string]string           // styleHash -> styleID
-	counter  int
+	// Border styles
+	borderStyles   map[string]string // styleID -> YAML string
+	borderHashToID map[string]string // styleHash -> styleID
+	borderCounter  int
+
+	// Font styles
+	fontStyles   map[string]string // styleID -> YAML string
+	fontHashToID map[string]string // styleHash -> styleID
+	fontCounter  int
+
+	// Fill styles
+	fillStyles   map[string]string // styleID -> YAML string
+	fillHashToID map[string]string // styleHash -> styleID
+	fillCounter  int
+
+	// Number format styles
+	numFmtStyles   map[string]string // styleID -> NumFmt
+	numFmtHashToID map[string]string // styleHash -> styleID
+	numFmtCounter  int
+
+	// Decimal places styles
+	decimalStyles   map[string]string // styleID -> YAML string
+	decimalHashToID map[string]string // styleHash -> styleID
+	decimalCounter  int
 }
 
 func NewStyleRegistry() *StyleRegistry {
 	return &StyleRegistry{
-		styles:   make(map[string]*excel.CellStyle),
-		hashToID: make(map[string]string),
-		counter:  0,
+		borderStyles:    make(map[string]string),
+		borderHashToID:  make(map[string]string),
+		borderCounter:   0,
+		fontStyles:      make(map[string]string),
+		fontHashToID:    make(map[string]string),
+		fontCounter:     0,
+		fillStyles:      make(map[string]string),
+		fillHashToID:    make(map[string]string),
+		fillCounter:     0,
+		numFmtStyles:    make(map[string]string),
+		numFmtHashToID:  make(map[string]string),
+		numFmtCounter:   0,
+		decimalStyles:   make(map[string]string),
+		decimalHashToID: make(map[string]string),
+		decimalCounter:  0,
 	}
 }
 
-func (sr *StyleRegistry) RegisterStyle(cellStyle *excel.CellStyle) string {
+func (sr *StyleRegistry) RegisterStyle(cellStyle *excel.CellStyle) []string {
 	if cellStyle == nil || sr.isEmptyStyle(cellStyle) {
-		return ""
+		return []string{}
 	}
 
-	styleHash := sr.calculateStyleHash(cellStyle)
+	var styleIDs []string
 
-	if existingID, exists := sr.hashToID[styleHash]; exists {
-		return existingID
+	// Register border style
+	if len(cellStyle.Border) > 0 {
+		if borderID := sr.RegisterBorderStyle(cellStyle.Border); borderID != "" {
+			styleIDs = append(styleIDs, borderID)
+		}
 	}
 
-	sr.counter++
-	styleID := fmt.Sprintf("s%d", sr.counter)
-	sr.styles[styleID] = cellStyle
-	sr.hashToID[styleHash] = styleID
+	// Register font style
+	if cellStyle.Font != nil {
+		if fontID := sr.RegisterFontStyle(cellStyle.Font); fontID != "" {
+			styleIDs = append(styleIDs, fontID)
+		}
+	}
 
-	return styleID
+	// Register fill style
+	if cellStyle.Fill != nil && cellStyle.Fill.Type != "" {
+		if fillID := sr.RegisterFillStyle(cellStyle.Fill); fillID != "" {
+			styleIDs = append(styleIDs, fillID)
+		}
+	}
+
+	// Register number format style
+	if cellStyle.NumFmt != "" {
+		if numFmtID := sr.RegisterNumFmtStyle(cellStyle.NumFmt); numFmtID != "" {
+			styleIDs = append(styleIDs, numFmtID)
+		}
+	}
+
+	// Register decimal places style
+	if cellStyle.DecimalPlaces != 0 {
+		if decimalID := sr.RegisterDecimalStyle(cellStyle.DecimalPlaces); decimalID != "" {
+			styleIDs = append(styleIDs, decimalID)
+		}
+	}
+
+	return styleIDs
 }
 
 func (sr *StyleRegistry) isEmptyStyle(style *excel.CellStyle) bool {
@@ -60,18 +119,149 @@ func (sr *StyleRegistry) isEmptyStyle(style *excel.CellStyle) bool {
 	return true
 }
 
-func (sr *StyleRegistry) calculateStyleHash(cellStyle *excel.CellStyle) string {
-	yamlBytes, err := yaml.MarshalWithOptions(cellStyle, yaml.Flow(true), yaml.OmitEmpty())
-	if err != nil {
+// calculateYamlHash calculates a hash for a YAML string
+func calculateYamlHash(yaml string) string {
+	if yaml == "" {
 		return ""
 	}
-
-	hash := md5.Sum(yamlBytes)
+	hash := md5.Sum([]byte(yaml))
 	return fmt.Sprintf("%x", hash)[:8]
 }
 
+// Individual style element registration methods
+func (sr *StyleRegistry) RegisterBorderStyle(borders []excel.BorderStyle) string {
+	if len(borders) == 0 {
+		return ""
+	}
+
+	yamlStr := convertToYAMLFlow(borders)
+	if yamlStr == "" {
+		return ""
+	}
+
+	styleHash := calculateYamlHash(yamlStr)
+	if styleHash == "" {
+		return ""
+	}
+
+	if existingID, exists := sr.borderHashToID[styleHash]; exists {
+		return existingID
+	}
+
+	sr.borderCounter++
+	styleID := fmt.Sprintf("b%d", sr.borderCounter)
+	sr.borderStyles[styleID] = yamlStr
+	sr.borderHashToID[styleHash] = styleID
+
+	return styleID
+}
+
+func (sr *StyleRegistry) RegisterFontStyle(font *excel.FontStyle) string {
+	if font == nil {
+		return ""
+	}
+
+	yamlStr := convertToYAMLFlow(font)
+	if yamlStr == "" {
+		return ""
+	}
+
+	styleHash := calculateYamlHash(yamlStr)
+	if styleHash == "" {
+		return ""
+	}
+
+	if existingID, exists := sr.fontHashToID[styleHash]; exists {
+		return existingID
+	}
+
+	sr.fontCounter++
+	styleID := fmt.Sprintf("f%d", sr.fontCounter)
+	sr.fontStyles[styleID] = yamlStr
+	sr.fontHashToID[styleHash] = styleID
+
+	return styleID
+}
+
+func (sr *StyleRegistry) RegisterFillStyle(fill *excel.FillStyle) string {
+	if fill == nil || fill.Type == "" {
+		return ""
+	}
+
+	yamlStr := convertToYAMLFlow(fill)
+	if yamlStr == "" {
+		return ""
+	}
+
+	styleHash := calculateYamlHash(yamlStr)
+	if styleHash == "" {
+		return ""
+	}
+
+	if existingID, exists := sr.fillHashToID[styleHash]; exists {
+		return existingID
+	}
+
+	sr.fillCounter++
+	styleID := fmt.Sprintf("l%d", sr.fillCounter)
+	sr.fillStyles[styleID] = yamlStr
+	sr.fillHashToID[styleHash] = styleID
+
+	return styleID
+}
+
+func (sr *StyleRegistry) RegisterNumFmtStyle(numFmt string) string {
+	if numFmt == "" {
+		return ""
+	}
+
+	styleHash := calculateYamlHash(numFmt)
+	if styleHash == "" {
+		return ""
+	}
+
+	if existingID, exists := sr.numFmtHashToID[styleHash]; exists {
+		return existingID
+	}
+
+	sr.numFmtCounter++
+	styleID := fmt.Sprintf("n%d", sr.numFmtCounter)
+	sr.numFmtStyles[styleID] = numFmt
+	sr.numFmtHashToID[styleHash] = styleID
+
+	return styleID
+}
+
+func (sr *StyleRegistry) RegisterDecimalStyle(decimal int) string {
+	if decimal == 0 {
+		return ""
+	}
+
+	yamlStr := convertToYAMLFlow(decimal)
+	if yamlStr == "" {
+		return ""
+	}
+
+	styleHash := calculateYamlHash(yamlStr)
+	if styleHash == "" {
+		return ""
+	}
+
+	if existingID, exists := sr.decimalHashToID[styleHash]; exists {
+		return existingID
+	}
+
+	sr.decimalCounter++
+	styleID := fmt.Sprintf("d%d", sr.decimalCounter)
+	sr.decimalStyles[styleID] = yamlStr
+	sr.decimalHashToID[styleHash] = styleID
+
+	return styleID
+}
+
 func (sr *StyleRegistry) GenerateStyleDefinitions() string {
-	if len(sr.styles) == 0 {
+	totalCount := len(sr.borderStyles) + len(sr.fontStyles) + len(sr.fillStyles) + len(sr.numFmtStyles) + len(sr.decimalStyles)
+	if totalCount == 0 {
 		return ""
 	}
 
@@ -79,27 +269,66 @@ func (sr *StyleRegistry) GenerateStyleDefinitions() string {
 	result.WriteString("<h2>Style Definitions</h2>\n")
 	result.WriteString("<div class=\"style-definitions\">\n")
 
+	// Generate border style definitions
+	result.WriteString(sr.generateStyleDefTag(sr.borderStyles, "border"))
+
+	// Generate font style definitions
+	result.WriteString(sr.generateStyleDefTag(sr.fontStyles, "font"))
+
+	// Generate fill style definitions
+	result.WriteString(sr.generateStyleDefTag(sr.fillStyles, "fill"))
+
+	// Generate number format style definitions
+	result.WriteString(sr.generateStyleDefTag(sr.numFmtStyles, "numFmt"))
+
+	// Generate decimal places style definitions
+	result.WriteString(sr.generateStyleDefTag(sr.decimalStyles, "decimalPlaces"))
+
+	result.WriteString("</div>\n\n")
+	return result.String()
+}
+
+func (sr *StyleRegistry) generateStyleDefTag(styles map[string]string, styleLabel string) string {
+	if len(styles) == 0 {
+		return ""
+	}
+
 	var styleIDs []string
-	for styleID := range sr.styles {
+	for styleID := range styles {
 		styleIDs = append(styleIDs, styleID)
 	}
+	sortStyleIDs(styleIDs)
+
+	var result strings.Builder
+	for _, styleID := range styleIDs {
+		yamlStr := styles[styleID]
+		if yamlStr != "" {
+			result.WriteString(fmt.Sprintf("<code class=\"style language-yaml\" id=\"%s\">%s: %s</code>\n", styleID, styleLabel, html.EscapeString(yamlStr)))
+		}
+	}
+	return result.String()
+}
+
+func sortStyleIDs(styleIDs []string) {
 	slices.SortFunc(styleIDs, func(a, b string) int {
-		// styleID must have number suffix
+		// styleID must have number suffix after prefix
 		ai, _ := strconv.Atoi(a[1:])
 		bi, _ := strconv.Atoi(b[1:])
 		return ai - bi
 	})
+}
 
-	for _, styleID := range styleIDs {
-		cellStyle := sr.styles[styleID]
-		yamlStr := convertCellStyleToYAMLFlow(cellStyle)
-		if yamlStr != "" {
-			result.WriteString(fmt.Sprintf("<code class=\"style language-yaml\" id=\"%s\">%s</code>\n", styleID, html.EscapeString(yamlStr)))
-		}
+// Common function to convert any value to YAML flow format
+func convertToYAMLFlow(value any) string {
+	if value == nil {
+		return ""
 	}
-
-	result.WriteString("</div>\n\n")
-	return result.String()
+	yamlBytes, err := yaml.MarshalWithOptions(value, yaml.Flow(true), yaml.OmitEmpty())
+	if err != nil {
+		return ""
+	}
+	yamlStr := strings.TrimSpace(strings.ReplaceAll(string(yamlBytes), "\"", ""))
+	return yamlStr
 }
 
 func CreateHTMLTableOfValues(worksheet excel.Worksheet, startCol int, startRow int, endCol int, endRow int) (*string, error) {
@@ -166,9 +395,9 @@ func createHTMLTableWithStyle(startCol int, startRow int, endCol int, endRow int
 			if styleExtractor != nil {
 				cellStyle, err := styleExtractor(axis)
 				if err == nil && cellStyle != nil {
-					styleID := registry.RegisterStyle(cellStyle)
-					if styleID != "" {
-						tdTag = fmt.Sprintf("<td style-ref=\"%s\">", styleID)
+					styleIDs := registry.RegisterStyle(cellStyle)
+					if len(styleIDs) > 0 {
+						tdTag = fmt.Sprintf("<td style-ref=\"%s\">", strings.Join(styleIDs, " "))
 					} else {
 						tdTag = "<td>"
 					}
@@ -200,7 +429,6 @@ func createHTMLTableWithStyle(startCol int, startRow int, endCol int, endRow int
 	return &finalResultStr, nil
 }
 
-
 func AbsolutePathTest() z.Test[*string] {
 	return z.Test[*string]{
 		Func: func(path *string, ctx z.Ctx) {
@@ -209,28 +437,4 @@ func AbsolutePathTest() z.Test[*string] {
 			}
 		},
 	}
-}
-
-func convertCellStyleToYAMLFlow(cellStyle *excel.CellStyle) string {
-	if cellStyle == nil {
-		return ""
-	}
-	yamlBytes, err := yaml.MarshalWithOptions(cellStyle, yaml.Flow(true), yaml.OmitEmpty())
-	if err != nil {
-		return ""
-	}
-	yamlStr := strings.TrimSpace(strings.ReplaceAll(string(yamlBytes), "\"", ""))
-	return yamlStr
-}
-
-func convertStyleMapToYAMLFlow(styleMap map[string]any) string {
-	if len(styleMap) == 0 {
-		return ""
-	}
-	yamlBytes, err := yaml.MarshalWithOptions(styleMap, yaml.Flow(true), yaml.OmitEmpty())
-	if err != nil {
-		return ""
-	}
-	yamlStr := strings.TrimSpace(strings.ReplaceAll(string(yamlBytes), "\"", ""))
-	return yamlStr
 }
