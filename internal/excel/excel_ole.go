@@ -374,7 +374,115 @@ func (o *OleWorksheet) AddTable(tableRange string, tableName string) error {
 }
 
 func (o *OleWorksheet) GetCellStyle(cell string) (*CellStyle, error) {
-	return &CellStyle{}, fmt.Errorf("GetCellStyle is not supported in OLE")
+	return getCellStyleFromRange(o.worksheet, cell)
+}
+
+// bgrToRgb converts BGR color format to RGB hex string
+func bgrToRgb(bgrColor int32) string {
+	// Extract RGB components from BGR format
+	r := (bgrColor >> 0) & 0xFF
+	g := (bgrColor >> 8) & 0xFF
+	b := (bgrColor >> 16) & 0xFF
+	return fmt.Sprintf("#%02X%02X%02X", r, g, b)
+}
+
+// excelBorderStyleToName converts Excel border style constant to BorderStyleName
+func excelBorderStyleToName(excelStyle int32) BorderStyleName {
+	switch excelStyle {
+	case 1: // xlContinuous
+		return BorderStyleContinuous
+	case -4115: // xlDash
+		return BorderStyleDash
+	case -4118: // xlDot
+		return BorderStyleDot
+	case -4119: // xlDouble
+		return BorderStyleDouble
+	case 4: // xlDashDot
+		return BorderStyleDashDot
+	case 5: // xlDashDotDot
+		return BorderStyleDashDotDot
+	case 13: // xlSlantDashDot
+		return BorderStyleSlantDashDot
+	case -4142: // xlLineStyleNone
+		return BorderStyleNone
+	default:
+		return BorderStyleNone
+	}
+}
+
+// getCellStyleFromRange extracts style information from a cell range
+func getCellStyleFromRange(worksheet *ole.IDispatch, cell string) (*CellStyle, error) {
+	rng := oleutil.MustGetProperty(worksheet, "Range", cell).ToIDispatch()
+	defer rng.Release()
+
+	style := &CellStyle{}
+
+	// Get Font information
+	font := oleutil.MustGetProperty(rng, "Font").ToIDispatch()
+	defer font.Release()
+
+	fontSize := int(oleutil.MustGetProperty(font, "Size").Value().(float64))
+	fontBold := oleutil.MustGetProperty(font, "Bold").Value().(bool)
+	fontItalic := oleutil.MustGetProperty(font, "Italic").Value().(bool)
+	fontColor := oleutil.MustGetProperty(font, "Color").Value().(int32)
+
+	style.Font = &FontStyle{
+		Bold:   fontBold,
+		Italic: fontItalic,
+		Size:   fontSize,
+		Color:  bgrToRgb(fontColor),
+	}
+
+	// Get Interior (fill) information
+	interior := oleutil.MustGetProperty(rng, "Interior").ToIDispatch()
+	defer interior.Release()
+
+	interiorColor := oleutil.MustGetProperty(interior, "Color").Value().(int32)
+	
+	style.Fill = &FillStyle{
+		Type:    "pattern",
+		Pattern: FillPatternSolid,
+		Color:   []string{bgrToRgb(interiorColor)},
+	}
+
+	// Get Border information
+	borders := oleutil.MustGetProperty(rng, "Borders").ToIDispatch()
+	defer borders.Release()
+
+	borderStyles := make([]BorderStyle, 0, 4)
+
+	// Get borders for each direction: Left(7), Top(8), Bottom(9), Right(10)
+	borderPositions := []struct {
+		index    int
+		position string
+	}{
+		{7, "left"},
+		{8, "top"},
+		{9, "bottom"},
+		{10, "right"},
+	}
+
+	for _, pos := range borderPositions {
+		border := oleutil.MustGetProperty(borders, "Item", pos.index).ToIDispatch()
+		defer border.Release()
+
+		borderColor := oleutil.MustGetProperty(border, "Color").Value().(int32)
+		borderLineStyle := oleutil.MustGetProperty(border, "LineStyle").Value().(int32)
+
+		// Only add border if it has a style (not xlLineStyleNone)
+		if borderLineStyle != -4142 {
+			borderStyle := BorderStyle{
+				Type:  pos.position,
+				Style: excelBorderStyleToName(borderLineStyle),
+				Color: bgrToRgb(borderColor),
+			}
+			borderStyles = append(borderStyles, borderStyle)
+		}
+	}
+
+	style.Border = borderStyles
+
+	return style, nil
 }
 
 func normalizePath(path string) string {
