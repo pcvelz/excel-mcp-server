@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"regexp"
+	"runtime"
 	"strings"
 
 	"github.com/go-ole/go-ole"
@@ -15,16 +17,18 @@ import (
 )
 
 type OleExcel struct {
-	workbook *ole.IDispatch
+	application *ole.IDispatch
+	workbook    *ole.IDispatch
 }
 
 type OleWorksheet struct {
-	workbook  *ole.IDispatch
+	excel     *OleExcel
 	worksheet *ole.IDispatch
 }
 
 func NewExcelOle(absolutePath string) (*OleExcel, func(), error) {
-	ole.CoInitializeEx(0, ole.COINIT_MULTITHREADED)
+	runtime.LockOSThread()
+	ole.CoInitializeEx(0, ole.COINIT_APARTMENTTHREADED)
 
 	unknown, err := oleutil.GetActiveObject("Excel.Application")
 	if err != nil {
@@ -46,25 +50,27 @@ func NewExcelOle(absolutePath string) (*OleExcel, func(), error) {
 			// If a workbook is opened through a WOPI URL, its absolute file path cannot be retrieved.
 			// If the absolutePath is not writable, it assumes that the workbook has opened by WOPI.
 			if FileIsNotWritable(absolutePath) {
-				return &OleExcel{workbook: workbook}, func() {
+				return &OleExcel{application: excel, workbook: workbook}, func() {
 					oleutil.MustPutProperty(excel, "EnableEvents", true)
 					oleutil.MustPutProperty(excel, "ScreenUpdating", true)
 					workbook.Release()
 					workbooks.Release()
 					excel.Release()
 					ole.CoUninitialize()
+					runtime.UnlockOSThread()
 				}, nil
 			} else {
 				// This workbook might not be specified with the absolutePath
 			}
 		} else if normalizePath(fullName) == normalizePath(absolutePath) {
-			return &OleExcel{workbook: workbook}, func() {
+			return &OleExcel{application: excel, workbook: workbook}, func() {
 				oleutil.MustPutProperty(excel, "EnableEvents", true)
 				oleutil.MustPutProperty(excel, "ScreenUpdating", true)
 				workbook.Release()
 				workbooks.Release()
 				excel.Release()
 				ole.CoUninitialize()
+				runtime.UnlockOSThread()
 			}, nil
 		}
 	}
@@ -72,7 +78,8 @@ func NewExcelOle(absolutePath string) (*OleExcel, func(), error) {
 }
 
 func NewExcelOleWithNewObject(absolutePath string) (*OleExcel, func(), error) {
-	ole.CoInitializeEx(0, ole.COINIT_MULTITHREADED)
+	runtime.LockOSThread()
+	ole.CoInitializeEx(0, ole.COINIT_APARTMENTTHREADED)
 
 	unknown, err := oleutil.CreateObject("Excel.Application")
 	if err != nil {
@@ -88,12 +95,13 @@ func NewExcelOleWithNewObject(absolutePath string) (*OleExcel, func(), error) {
 		return nil, func() {}, err
 	}
 	w := workbook.ToIDispatch()
-	return &OleExcel{workbook: w}, func() {
+	return &OleExcel{application: excel, workbook: w}, func() {
 		w.Release()
 		workbooks.Release()
 		excel.Release()
 		oleutil.CallMethod(excel, "Close")
 		ole.CoUninitialize()
+		runtime.UnlockOSThread()
 	}, nil
 }
 
@@ -111,7 +119,7 @@ func (o *OleExcel) GetSheets() ([]Worksheet, error) {
 	for i := 1; i <= count; i++ {
 		worksheet := oleutil.MustGetProperty(worksheets, "Item", i).ToIDispatch()
 		worksheetList[i-1] = &OleWorksheet{
-			workbook:  o.workbook,
+			excel:     o,
 			worksheet: worksheet,
 		}
 	}
@@ -130,7 +138,7 @@ func (o *OleExcel) FindSheet(sheetName string) (Worksheet, error) {
 
 		if name == sheetName {
 			return &OleWorksheet{
-				workbook:  o.workbook,
+				excel:     o,
 				worksheet: worksheet,
 			}, nil
 		}
@@ -389,19 +397,30 @@ func (o *OleWorksheet) GetCellStyle(cell string) (*CellStyle, error) {
 	style := &CellStyle{}
 
 	// Get Font information
+	normalStyle := oleutil.MustGetProperty(o.excel.workbook, "Styles", "Normal").ToIDispatch()
+	defer normalStyle.Release()
+	normalFont := oleutil.MustGetProperty(normalStyle, "Font").ToIDispatch()
+	defer normalFont.Release()
 	font := oleutil.MustGetProperty(rng, "Font").ToIDispatch()
 	defer font.Release()
+
+	normalFontSize := int(oleutil.MustGetProperty(normalFont, "Size").Value().(float64))
+	normalFontBold := oleutil.MustGetProperty(normalFont, "Bold").Value().(bool)
+	normalFontItalic := oleutil.MustGetProperty(normalFont, "Italic").Value().(bool)
+	normalFontColor := oleutil.MustGetProperty(normalFont, "Color").Value().(float64)
 
 	fontSize := int(oleutil.MustGetProperty(font, "Size").Value().(float64))
 	fontBold := oleutil.MustGetProperty(font, "Bold").Value().(bool)
 	fontItalic := oleutil.MustGetProperty(font, "Italic").Value().(bool)
 	fontColor := oleutil.MustGetProperty(font, "Color").Value().(float64)
 
-	style.Font = &FontStyle{
-		Bold:   fontBold,
-		Italic: fontItalic,
-		Size:   fontSize,
-		Color:  bgrToRgb(fontColor),
+	if fontSize != normalFontSize || fontBold != normalFontBold || fontItalic != normalFontItalic || fontColor != normalFontColor {
+		style.Font = &FontStyle{
+			Bold:   fontBold,
+			Italic: fontItalic,
+			Size:   fontSize,
+			Color:  bgrToRgb(fontColor),
+		}
 	}
 
 	// Get Interior (fill) information
@@ -434,23 +453,56 @@ func (o *OleWorksheet) GetCellStyle(cell string) (*CellStyle, error) {
 		{10, "right"},
 	}
 
-	for _, pos := range borderPositions {
-		border := oleutil.MustGetProperty(rng, "Borders", pos.index).ToIDispatch()
-		defer border.Release()
+	borders := oleutil.MustGetProperty(rng, "Borders").ToIDispatch()
+	defer borders.Release()
+	bordersLineStyle := oleutil.MustGetProperty(borders, "LineStyle")
+	if bordersLineStyle.VT == ole.VT_NULL {
+		// If Borders.LineStyle is null, the borders have different styles
+		for _, pos := range borderPositions {
+			border := oleutil.MustGetProperty(borders, "Item", pos.index).ToIDispatch()
+			defer border.Release()
 
-		borderLineStyle := excelBorderStyleToName(oleutil.MustGetProperty(border, "LineStyle").Value().(int32))
+			borderLineStyle := excelBorderStyleToName(oleutil.MustGetProperty(border, "LineStyle").Value().(int32))
 
-		if borderLineStyle != BorderStyleNone {
-			borderColor := oleutil.MustGetProperty(border, "Color").Value().(float64)
-			borderStyle := BorderStyle{
-				Type:  pos.position,
-				Style: borderLineStyle,
-				Color: bgrToRgb(borderColor),
+			if borderLineStyle != BorderStyleNone {
+				borderColor := oleutil.MustGetProperty(border, "Color").Value().(float64)
+				borderStyle := BorderStyle{
+					Type:  pos.position,
+					Style: borderLineStyle,
+					Color: bgrToRgb(borderColor),
+				}
+				borderStyles = append(borderStyles, borderStyle)
 			}
-			borderStyles = append(borderStyles, borderStyle)
+		}
+	} else {
+		// If Borders.LineStyle is not null, all borders have the same style
+		lineStyle := excelBorderStyleToName(bordersLineStyle.Value().(int32))
+		if lineStyle != BorderStyleNone {
+			for _, pos := range borderPositions {
+				border := oleutil.MustGetProperty(borders, "Item", pos.index).ToIDispatch()
+				borderColor := oleutil.MustGetProperty(border, "Color").Value().(float64)
+				borderStyle := BorderStyle{
+					Type:  pos.position,
+					Style: lineStyle,
+					Color: bgrToRgb(borderColor),
+				}
+				borderStyles = append(borderStyles, borderStyle)
+			}
 		}
 	}
+
 	style.Border = borderStyles
+
+	// Get NumberFormat information
+	generalNumberFormat := oleutil.MustGetProperty(o.excel.application, "International", 26).Value().(string) // xlGeneralFormatName
+	numberFormat := oleutil.MustGetProperty(rng, "NumberFormat").ToString()
+	if numberFormat != generalNumberFormat && numberFormat != "@" {
+		style.NumFmt = numberFormat
+	}
+
+	// Extract decimal places from number format if it's a numeric format
+	decimalPlaces := extractDecimalPlacesFromFormat(numberFormat)
+	style.DecimalPlaces = decimalPlaces
 
 	return style, nil
 }
@@ -547,6 +599,19 @@ func excelPatternToFillPattern(excelPattern int32) FillPatternName {
 	default:
 		return FillPatternNone
 	}
+}
+
+var extractDecimalPlacesRegexp = regexp.MustCompile(`\.([0#]+)`)
+
+// extractDecimalPlacesFromFormat extracts decimal places count from Excel number format string
+func extractDecimalPlacesFromFormat(format string) int {
+	// Handle common numeric formats
+	// Examples: "0.00" -> 2, "#,##0.000" -> 3, "0" -> 0
+	matches := extractDecimalPlacesRegexp.FindStringSubmatch(format)
+	if len(matches) > 1 {
+		return len(matches[1])
+	}
+	return 0
 }
 
 func normalizePath(path string) string {
