@@ -93,15 +93,15 @@ func (sr *StyleRegistry) RegisterStyle(cellStyle *excel.CellStyle) []string {
 	}
 
 	// Register number format style
-	if cellStyle.NumFmt != "" {
-		if numFmtID := sr.RegisterNumFmtStyle(cellStyle.NumFmt); numFmtID != "" {
+	if cellStyle.NumFmt != nil && *cellStyle.NumFmt != "" {
+		if numFmtID := sr.RegisterNumFmtStyle(*cellStyle.NumFmt); numFmtID != "" {
 			styleIDs = append(styleIDs, numFmtID)
 		}
 	}
 
 	// Register decimal places style
-	if cellStyle.DecimalPlaces != 0 {
-		if decimalID := sr.RegisterDecimalStyle(cellStyle.DecimalPlaces); decimalID != "" {
+	if cellStyle.DecimalPlaces != nil && *cellStyle.DecimalPlaces != 0 {
+		if decimalID := sr.RegisterDecimalStyle(*cellStyle.DecimalPlaces); decimalID != "" {
 			styleIDs = append(styleIDs, decimalID)
 		}
 	}
@@ -110,7 +110,7 @@ func (sr *StyleRegistry) RegisterStyle(cellStyle *excel.CellStyle) []string {
 }
 
 func (sr *StyleRegistry) isEmptyStyle(style *excel.CellStyle) bool {
-	if len(style.Border) > 0 || style.Font != nil || style.NumFmt != "" || style.DecimalPlaces != 0 {
+	if len(style.Border) > 0 || style.Font != nil || (style.NumFmt != nil && *style.NumFmt != "") || (style.DecimalPlaces != nil && *style.DecimalPlaces != 0) {
 		return false
 	}
 	if style.Fill != nil && style.Fill.Type != "" {
@@ -129,7 +129,7 @@ func calculateYamlHash(yaml string) string {
 }
 
 // Individual style element registration methods
-func (sr *StyleRegistry) RegisterBorderStyle(borders []excel.BorderStyle) string {
+func (sr *StyleRegistry) RegisterBorderStyle(borders []excel.Border) string {
 	if len(borders) == 0 {
 		return ""
 	}

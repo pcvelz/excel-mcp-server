@@ -47,6 +47,8 @@ type Worksheet interface {
 	AddTable(tableRange, tableName string) error
 	// GetCellStyle gets style information for the specified cell.
 	GetCellStyle(cell string) (*CellStyle, error)
+	// SetCellStyle sets style for the specified cell.
+	SetCellStyle(cell string, style *CellStyle) error
 }
 
 type Table struct {
@@ -60,34 +62,34 @@ type PivotTable struct {
 }
 
 type CellStyle struct {
-	Border        []BorderStyle `yaml:"border,omitempty"`
-	Font          *FontStyle    `yaml:"font,omitempty"`
-	Fill          *FillStyle    `yaml:"fill,omitempty"`
-	NumFmt        string        `yaml:"numFmt,omitempty"`
-	DecimalPlaces int           `yaml:"decimalPlaces,omitempty"`
+	Border        []Border   `yaml:"border,omitempty"`
+	Font          *FontStyle `yaml:"font,omitempty"`
+	Fill          *FillStyle `yaml:"fill,omitempty"`
+	NumFmt        *string    `yaml:"numFmt,omitempty"`
+	DecimalPlaces *int       `yaml:"decimalPlaces,omitempty"`
 }
 
-type BorderStyle struct {
-	Type  string          `yaml:"type"`
-	Style BorderStyleName `yaml:"style,omitempty"`
-	Color string          `yaml:"color,omitempty"`
+type Border struct {
+	Type  BorderType  `yaml:"type"`
+	Style BorderStyle `yaml:"style,omitempty"`
+	Color string      `yaml:"color,omitempty"`
 }
 
 type FontStyle struct {
-	Bold      bool   `yaml:"bold,omitempty"`
-	Italic    bool   `yaml:"italic,omitempty"`
-	Underline string `yaml:"underline,omitempty"`
-	Size      int    `yaml:"size,omitempty"`
-	Strike    bool   `yaml:"strike,omitempty"`
-	Color     string `yaml:"color,omitempty"`
-	VertAlign string `yaml:"vertAlign,omitempty"`
+	Bold      *bool          `yaml:"bold,omitempty"`
+	Italic    *bool          `yaml:"italic,omitempty"`
+	Underline *FontUnderline `yaml:"underline,omitempty"`
+	Size      *int           `yaml:"size,omitempty"`
+	Strike    *bool          `yaml:"strike,omitempty"`
+	Color     *string        `yaml:"color,omitempty"`
+	VertAlign *FontVertAlign `yaml:"vertAlign,omitempty"`
 }
 
 type FillStyle struct {
-	Type    string          `yaml:"type,omitempty"`
-	Pattern FillPatternName `yaml:"pattern,omitempty"`
-	Color   []string        `yaml:"color,omitempty"`
-	Shading FillShadingName `yaml:"shading,omitempty"`
+	Type    FillType     `yaml:"type,omitempty"`
+	Pattern FillPattern  `yaml:"pattern,omitempty"`
+	Color   []string     `yaml:"color,omitempty"`
+	Shading *FillShading `yaml:"shading,omitempty"`
 }
 
 // OpenFile opens an Excel file and returns an Excel interface.
@@ -109,132 +111,236 @@ func OpenFile(absoluteFilePath string) (Excel, func(), error) {
 	}, nil
 }
 
-// BorderStyleName represents border style constants
-type BorderStyleName int
+// BorderType represents border direction
+type BorderType string
 
 const (
-	BorderStyleNone BorderStyleName = iota
-	BorderStyleContinuous
-	BorderStyleDash
-	BorderStyleDot
-	BorderStyleDouble
-	BorderStyleDashDot
-	BorderStyleDashDotDot
-	BorderStyleSlantDashDot
-	BorderStyleMediumDashDot
-	BorderStyleMediumDashDotDot
+	BorderTypeLeft         BorderType = "left"
+	BorderTypeRight        BorderType = "right"
+	BorderTypeTop          BorderType = "top"
+	BorderTypeBottom       BorderType = "bottom"
+	BorderTypeDiagonalDown BorderType = "diagonalDown"
+	BorderTypeDiagonalUp   BorderType = "diagonalUp"
 )
 
-var borderStyleNames = map[BorderStyleName]string{
-	BorderStyleNone:             "none",
-	BorderStyleContinuous:       "continuous",
-	BorderStyleDash:             "dash",
-	BorderStyleDot:              "dot",
-	BorderStyleDouble:           "double",
-	BorderStyleDashDot:          "dashDot",
-	BorderStyleDashDotDot:       "dashDotDot",
-	BorderStyleSlantDashDot:     "slantDashDot",
-	BorderStyleMediumDashDot:    "mediumDashDot",
-	BorderStyleMediumDashDotDot: "mediumDashDotDot",
+func (b BorderType) String() string {
+	return string(b)
 }
 
-func (b BorderStyleName) String() string {
-	if name, exists := borderStyleNames[b]; exists {
-		return name
-	}
-	return "continuous"
-}
-
-func (b BorderStyleName) MarshalText() ([]byte, error) {
+func (b BorderType) MarshalText() ([]byte, error) {
 	return []byte(b.String()), nil
 }
 
-// FillPatternName represents fill pattern constants
-type FillPatternName int
+func BorderTypeValues() []BorderType {
+	return []BorderType{
+		BorderTypeLeft,
+		BorderTypeRight,
+		BorderTypeTop,
+		BorderTypeBottom,
+		BorderTypeDiagonalDown,
+		BorderTypeDiagonalUp,
+	}
+}
+
+// BorderStyle represents border style constants
+type BorderStyle string
 
 const (
-	FillPatternNone FillPatternName = iota
-	FillPatternSolid
-	FillPatternMediumGray
-	FillPatternDarkGray
-	FillPatternLightGray
-	FillPatternDarkHorizontal
-	FillPatternDarkVertical
-	FillPatternDarkDown
-	FillPatternDarkUp
-	FillPatternDarkGrid
-	FillPatternDarkTrellis
-	FillPatternLightHorizontal
-	FillPatternLightVertical
-	FillPatternLightDown
-	FillPatternLightUp
-	FillPatternLightGrid
-	FillPatternLightTrellis
-	FillPatternGray125
-	FillPatternGray0625
+	BorderStyleNone             BorderStyle = "none"
+	BorderStyleContinuous       BorderStyle = "continuous"
+	BorderStyleDash             BorderStyle = "dash"
+	BorderStyleDot              BorderStyle = "dot"
+	BorderStyleDouble           BorderStyle = "double"
+	BorderStyleDashDot          BorderStyle = "dashDot"
+	BorderStyleDashDotDot       BorderStyle = "dashDotDot"
+	BorderStyleSlantDashDot     BorderStyle = "slantDashDot"
+	BorderStyleMediumDashDot    BorderStyle = "mediumDashDot"
+	BorderStyleMediumDashDotDot BorderStyle = "mediumDashDotDot"
 )
 
-var fillPatternNames = map[FillPatternName]string{
-	FillPatternNone:            "none",
-	FillPatternSolid:           "solid",
-	FillPatternMediumGray:      "mediumGray",
-	FillPatternDarkGray:        "darkGray",
-	FillPatternLightGray:       "lightGray",
-	FillPatternDarkHorizontal:  "darkHorizontal",
-	FillPatternDarkVertical:    "darkVertical",
-	FillPatternDarkDown:        "darkDown",
-	FillPatternDarkUp:          "darkUp",
-	FillPatternDarkGrid:        "darkGrid",
-	FillPatternDarkTrellis:     "darkTrellis",
-	FillPatternLightHorizontal: "lightHorizontal",
-	FillPatternLightVertical:   "lightVertical",
-	FillPatternLightDown:       "lightDown",
-	FillPatternLightUp:         "lightUp",
-	FillPatternLightGrid:       "lightGrid",
-	FillPatternLightTrellis:    "lightTrellis",
-	FillPatternGray125:         "gray125",
-	FillPatternGray0625:        "gray0625",
+func (b BorderStyle) String() string {
+	return string(b)
 }
 
-func (f FillPatternName) String() string {
-	if name, exists := fillPatternNames[f]; exists {
-		return name
+func (b BorderStyle) MarshalText() ([]byte, error) {
+	return []byte(b.String()), nil
+}
+
+func BorderStyleValues() []BorderStyle {
+	return []BorderStyle{
+		BorderStyleNone,
+		BorderStyleContinuous,
+		BorderStyleDash,
+		BorderStyleDot,
+		BorderStyleDouble,
+		BorderStyleDashDot,
+		BorderStyleDashDotDot,
+		BorderStyleSlantDashDot,
+		BorderStyleMediumDashDot,
+		BorderStyleMediumDashDotDot,
 	}
-	return "none"
 }
 
-func (f FillPatternName) MarshalText() ([]byte, error) {
+// FontUnderline represents underline styles for font
+type FontUnderline string
+
+const (
+	FontUnderlineNone             FontUnderline = "none"
+	FontUnderlineSingle           FontUnderline = "single"
+	FontUnderlineDouble           FontUnderline = "double"
+	FontUnderlineSingleAccounting FontUnderline = "singleAccounting"
+	FontUnderlineDoubleAccounting FontUnderline = "doubleAccounting"
+)
+
+func (f FontUnderline) String() string {
+	return string(f)
+}
+func (f FontUnderline) MarshalText() ([]byte, error) {
 	return []byte(f.String()), nil
 }
 
-// FillShadingName represents fill shading constants
-type FillShadingName int
-
-const (
-	FillShadingHorizontal FillShadingName = iota
-	FillShadingVertical
-	FillShadingDiagonalDown
-	FillShadingDiagonalUp
-	FillShadingFromCenter
-	FillShadingFromCorner
-)
-
-func (f FillShadingName) String() string {
-	if name, exists := fillShadingNames[f]; exists {
-		return name
+func FontUnderlineValues() []FontUnderline {
+	return []FontUnderline{
+		FontUnderlineNone,
+		FontUnderlineSingle,
+		FontUnderlineDouble,
+		FontUnderlineSingleAccounting,
+		FontUnderlineDoubleAccounting,
 	}
-	return "horizontal"
 }
 
-func (f FillShadingName) MarshalText() ([]byte, error) {
+// FontVertAlign represents vertical alignment options for font styles
+type FontVertAlign string
+
+const (
+	FontVertAlignBaseline    FontVertAlign = "baseline"
+	FontVertAlignSuperscript FontVertAlign = "superscript"
+	FontVertAlignSubscript   FontVertAlign = "subscript"
+)
+
+func (v FontVertAlign) String() string {
+	return string(v)
+}
+
+func (v FontVertAlign) MarshalText() ([]byte, error) {
+	return []byte(v.String()), nil
+}
+
+func FontVertAlignValues() []FontVertAlign {
+	return []FontVertAlign{
+		FontVertAlignBaseline,
+		FontVertAlignSuperscript,
+		FontVertAlignSubscript,
+	}
+}
+
+// FillType represents fill types for cell styles
+type FillType string
+
+const (
+	FillTypeGradient FillType = "gradient"
+	FillTypePattern  FillType = "pattern"
+)
+
+func (f FillType) String() string {
+	return string(f)
+}
+
+func (f FillType) MarshalText() ([]byte, error) {
 	return []byte(f.String()), nil
 }
 
-var fillShadingNames = map[FillShadingName]string{
-	FillShadingHorizontal:   "horizontal",
-	FillShadingVertical:     "vertical",
-	FillShadingDiagonalDown: "diagonalDown",
-	FillShadingDiagonalUp:   "diagonalUp",
-	FillShadingFromCenter:   "fromCenter",
-	FillShadingFromCorner:   "fromCorner",
+func FillTypeValues() []FillType {
+	return []FillType{
+		FillTypeGradient,
+		FillTypePattern,
+	}
+}
+
+// FillPattern represents fill pattern constants
+type FillPattern string
+
+const (
+	FillPatternNone            FillPattern = "none"
+	FillPatternSolid           FillPattern = "solid"
+	FillPatternMediumGray      FillPattern = "mediumGray"
+	FillPatternDarkGray        FillPattern = "darkGray"
+	FillPatternLightGray       FillPattern = "lightGray"
+	FillPatternDarkHorizontal  FillPattern = "darkHorizontal"
+	FillPatternDarkVertical    FillPattern = "darkVertical"
+	FillPatternDarkDown        FillPattern = "darkDown"
+	FillPatternDarkUp          FillPattern = "darkUp"
+	FillPatternDarkGrid        FillPattern = "darkGrid"
+	FillPatternDarkTrellis     FillPattern = "darkTrellis"
+	FillPatternLightHorizontal FillPattern = "lightHorizontal"
+	FillPatternLightVertical   FillPattern = "lightVertical"
+	FillPatternLightDown       FillPattern = "lightDown"
+	FillPatternLightUp         FillPattern = "lightUp"
+	FillPatternLightGrid       FillPattern = "lightGrid"
+	FillPatternLightTrellis    FillPattern = "lightTrellis"
+	FillPatternGray125         FillPattern = "gray125"
+	FillPatternGray0625        FillPattern = "gray0625"
+)
+
+func (f FillPattern) String() string {
+	return string(f)
+}
+
+func (f FillPattern) MarshalText() ([]byte, error) {
+	return []byte(f.String()), nil
+}
+
+func FillPatternValues() []FillPattern {
+	return []FillPattern{
+		FillPatternNone,
+		FillPatternSolid,
+		FillPatternMediumGray,
+		FillPatternDarkGray,
+		FillPatternLightGray,
+		FillPatternDarkHorizontal,
+		FillPatternDarkVertical,
+		FillPatternDarkDown,
+		FillPatternDarkUp,
+		FillPatternDarkGrid,
+		FillPatternDarkTrellis,
+		FillPatternLightHorizontal,
+		FillPatternLightVertical,
+		FillPatternLightDown,
+		FillPatternLightUp,
+		FillPatternLightGrid,
+		FillPatternLightTrellis,
+		FillPatternGray125,
+		FillPatternGray0625,
+	}
+}
+
+// FillShading represents fill shading constants
+type FillShading string
+
+const (
+	FillShadingHorizontal   FillShading = "horizontal"
+	FillShadingVertical     FillShading = "vertical"
+	FillShadingDiagonalDown FillShading = "diagonalDown"
+	FillShadingDiagonalUp   FillShading = "diagonalUp"
+	FillShadingFromCenter   FillShading = "fromCenter"
+	FillShadingFromCorner   FillShading = "fromCorner"
+)
+
+func (f FillShading) String() string {
+	return string(f)
+}
+
+func (f FillShading) MarshalText() ([]byte, error) {
+	return []byte(f.String()), nil
+}
+
+func FillShadingValues() []FillShading {
+	return []FillShading{
+		FillShadingHorizontal,
+		FillShadingVertical,
+		FillShadingDiagonalDown,
+		FillShadingDiagonalUp,
+		FillShadingFromCenter,
+		FillShadingFromCorner,
+	}
 }

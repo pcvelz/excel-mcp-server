@@ -20,7 +20,7 @@ type ExcelReadSheetArguments struct {
 	ShowStyle        bool   `zog:"showStyle"`
 }
 
-var excelReadSheetArgumentsSchema = z.Struct(z.Schema{
+var excelReadSheetArgumentsSchema = z.Struct(z.Shape{
 	"fileAbsolutePath": z.String().Test(AbsolutePathTest()).Required(),
 	"sheetName":        z.String().Required(),
 	"range":            z.String(),

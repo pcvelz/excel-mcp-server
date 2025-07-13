@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"fmt"
+
 	z "github.com/Oudwins/zog"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -16,7 +17,7 @@ type ExcelScreenCaptureArguments struct {
 	Range            string `zog:"range"`
 }
 
-var ExcelScreenCaptureArgumentsSchema = z.Struct(z.Schema{
+var ExcelScreenCaptureArgumentsSchema = z.Struct(z.Shape{
 	"fileAbsolutePath": z.String().Test(AbsolutePathTest()).Required(),
 	"sheetName":        z.String().Required(),
 	"range":            z.String(),

@@ -15,7 +15,7 @@ type ExcelDescribeSheetsArguments struct {
 	FileAbsolutePath string `zog:"fileAbsolutePath"`
 }
 
-var excelDescribeSheetsArgumentsSchema = z.Struct(z.Schema{
+var excelDescribeSheetsArgumentsSchema = z.Struct(z.Shape{
 	"fileAbsolutePath": z.String().Test(AbsolutePathTest()).Required(),
 })
 

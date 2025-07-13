@@ -415,11 +415,12 @@ func (o *OleWorksheet) GetCellStyle(cell string) (*CellStyle, error) {
 	fontColor := oleutil.MustGetProperty(font, "Color").Value().(float64)
 
 	if fontSize != normalFontSize || fontBold != normalFontBold || fontItalic != normalFontItalic || fontColor != normalFontColor {
+		colorStr := bgrToRgb(fontColor)
 		style.Font = &FontStyle{
-			Bold:   fontBold,
-			Italic: fontItalic,
-			Size:   fontSize,
-			Color:  bgrToRgb(fontColor),
+			Bold:   &fontBold,
+			Italic: &fontItalic,
+			Size:   &fontSize,
+			Color:  &colorStr,
 		}
 	}
 
@@ -440,17 +441,17 @@ func (o *OleWorksheet) GetCellStyle(cell string) (*CellStyle, error) {
 	}
 
 	// Get Border information
-	var borderStyles []BorderStyle
+	var borderStyles []Border
 
 	// Get borders for each direction: Left(7), Top(8), Bottom(9), Right(10)
 	borderPositions := []struct {
 		index    int
-		position string
+		position BorderType
 	}{
-		{7, "left"},
-		{8, "top"},
-		{9, "bottom"},
-		{10, "right"},
+		{7, BorderTypeLeft},
+		{8, BorderTypeTop},
+		{9, BorderTypeBottom},
+		{10, BorderTypeRight},
 	}
 
 	borders := oleutil.MustGetProperty(rng, "Borders").ToIDispatch()
@@ -466,7 +467,7 @@ func (o *OleWorksheet) GetCellStyle(cell string) (*CellStyle, error) {
 
 			if borderLineStyle != BorderStyleNone {
 				borderColor := oleutil.MustGetProperty(border, "Color").Value().(float64)
-				borderStyle := BorderStyle{
+				borderStyle := Border{
 					Type:  pos.position,
 					Style: borderLineStyle,
 					Color: bgrToRgb(borderColor),
@@ -481,7 +482,7 @@ func (o *OleWorksheet) GetCellStyle(cell string) (*CellStyle, error) {
 			for _, pos := range borderPositions {
 				border := oleutil.MustGetProperty(borders, "Item", pos.index).ToIDispatch()
 				borderColor := oleutil.MustGetProperty(border, "Color").Value().(float64)
-				borderStyle := BorderStyle{
+				borderStyle := Border{
 					Type:  pos.position,
 					Style: lineStyle,
 					Color: bgrToRgb(borderColor),
@@ -497,12 +498,12 @@ func (o *OleWorksheet) GetCellStyle(cell string) (*CellStyle, error) {
 	generalNumberFormat := oleutil.MustGetProperty(o.excel.application, "International", 26).Value().(string) // xlGeneralFormatName
 	numberFormat := oleutil.MustGetProperty(rng, "NumberFormat").ToString()
 	if numberFormat != generalNumberFormat && numberFormat != "@" {
-		style.NumFmt = numberFormat
+		style.NumFmt = &numberFormat
 	}
 
 	// Extract decimal places from number format if it's a numeric format
 	decimalPlaces := extractDecimalPlacesFromFormat(numberFormat)
-	style.DecimalPlaces = decimalPlaces
+	style.DecimalPlaces = &decimalPlaces
 
 	return style, nil
 }
@@ -518,7 +519,7 @@ func bgrToRgb(bgrColor float64) string {
 }
 
 // excelBorderStyleToName converts Excel border style constant to BorderStyleName
-func excelBorderStyleToName(excelStyle int32) BorderStyleName {
+func excelBorderStyleToName(excelStyle int32) BorderStyle {
 	switch excelStyle {
 	case 1: // xlContinuous
 		return BorderStyleContinuous
@@ -542,7 +543,7 @@ func excelBorderStyleToName(excelStyle int32) BorderStyleName {
 }
 
 // excelPatternToFillPattern converts Excel XlPattern constant to FillPatternName
-func excelPatternToFillPattern(excelPattern int32) FillPatternName {
+func excelPatternToFillPattern(excelPattern int32) FillPattern {
 	switch excelPattern {
 	case -4142: // xlPatternNone
 		return FillPatternNone
@@ -612,6 +613,194 @@ func extractDecimalPlacesFromFormat(format string) int {
 		return len(matches[1])
 	}
 	return 0
+}
+
+func (o *OleWorksheet) SetCellStyle(cell string, style *CellStyle) error {
+	rng := oleutil.MustGetProperty(o.worksheet, "Range", cell).ToIDispatch()
+	defer rng.Release()
+
+	// Apply Font styles
+	if style.Font != nil {
+		font := oleutil.MustGetProperty(rng, "Font").ToIDispatch()
+		defer font.Release()
+
+		if style.Font.Bold != nil {
+			oleutil.PutProperty(font, "Bold", *style.Font.Bold)
+		}
+		if style.Font.Italic != nil {
+			oleutil.PutProperty(font, "Italic", *style.Font.Italic)
+		}
+		if style.Font.Size != nil && *style.Font.Size > 0 {
+			oleutil.PutProperty(font, "Size", *style.Font.Size)
+		}
+		if style.Font.Color != nil && *style.Font.Color != "" {
+			colorValue := rgbToBgr(*style.Font.Color)
+			oleutil.PutProperty(font, "Color", colorValue)
+		}
+		if style.Font.Strike != nil && *style.Font.Strike {
+			oleutil.PutProperty(font, "Strikethrough", true)
+		}
+	}
+
+	// Apply Fill styles
+	if style.Fill != nil {
+		interior := oleutil.MustGetProperty(rng, "Interior").ToIDispatch()
+		defer interior.Release()
+
+		if style.Fill.Pattern != FillPatternNone {
+			oleutil.PutProperty(interior, "Pattern", fillPatternToExcelPattern(style.Fill.Pattern))
+		}
+		if len(style.Fill.Color) > 0 && style.Fill.Color[0] != "" {
+			colorValue := rgbToBgr(style.Fill.Color[0])
+			oleutil.PutProperty(interior, "Color", colorValue)
+		}
+	}
+
+	// Apply Border styles
+	if len(style.Border) > 0 {
+		borders := oleutil.MustGetProperty(rng, "Borders").ToIDispatch()
+		defer borders.Release()
+
+		for _, borderStyle := range style.Border {
+			borderIndex := borderTypeToIndex(borderStyle.Type)
+			if borderIndex > 0 {
+				border := oleutil.MustGetProperty(borders, "Item", borderIndex).ToIDispatch()
+				defer border.Release()
+
+				oleutil.PutProperty(border, "LineStyle", borderStyleNameToExcel(borderStyle.Style))
+				if borderStyle.Color != "" {
+					colorValue := rgbToBgr(borderStyle.Color)
+					oleutil.PutProperty(border, "Color", colorValue)
+				}
+			}
+		}
+	}
+
+	// Apply Number Format
+	if style.NumFmt != nil && *style.NumFmt != "" {
+		oleutil.PutProperty(rng, "NumberFormat", *style.NumFmt)
+	}
+
+	return nil
+}
+
+// rgbToBgr converts RGB hex string to BGR color format
+func rgbToBgr(rgbColor string) int32 {
+	if len(rgbColor) != 7 || rgbColor[0] != '#' {
+		return 0
+	}
+
+	r := hexToByte(rgbColor[1:3])
+	g := hexToByte(rgbColor[3:5])
+	b := hexToByte(rgbColor[5:7])
+
+	return int32(r) | (int32(g) << 8) | (int32(b) << 16)
+}
+
+// hexToByte converts hex string to byte
+func hexToByte(hex string) byte {
+	var result byte
+	for _, char := range hex {
+		result *= 16
+		if char >= '0' && char <= '9' {
+			result += byte(char - '0')
+		} else if char >= 'A' && char <= 'F' {
+			result += byte(char - 'A' + 10)
+		} else if char >= 'a' && char <= 'f' {
+			result += byte(char - 'a' + 10)
+		}
+	}
+	return result
+}
+
+// borderTypeToIndex converts border type string to Excel border index
+func borderTypeToIndex(borderType BorderType) int {
+	switch borderType {
+	case BorderTypeLeft:
+		return 7
+	case BorderTypeTop:
+		return 8
+	case BorderTypeBottom:
+		return 9
+	case BorderTypeRight:
+		return 10
+	case BorderTypeDiagonalDown:
+		return 5
+	case BorderTypeDiagonalUp:
+		return 6
+	default:
+		return 0
+	}
+}
+
+// borderStyleNameToExcel converts BorderStyleName to Excel constant
+func borderStyleNameToExcel(style BorderStyle) int32 {
+	switch style {
+	case BorderStyleContinuous:
+		return 1 // xlContinuous
+	case BorderStyleDash:
+		return -4115 // xlDash
+	case BorderStyleDot:
+		return -4118 // xlDot
+	case BorderStyleDouble:
+		return -4119 // xlDouble
+	case BorderStyleDashDot:
+		return 4 // xlDashDot
+	case BorderStyleDashDotDot:
+		return 5 // xlDashDotDot
+	case BorderStyleSlantDashDot:
+		return 13 // xlSlantDashDot
+	case BorderStyleNone:
+		return -4142 // xlLineStyleNone
+	default:
+		return -4142 // xlLineStyleNone
+	}
+}
+
+// fillPatternToExcelPattern converts FillPatternName to Excel pattern constant
+func fillPatternToExcelPattern(pattern FillPattern) int32 {
+	switch pattern {
+	case FillPatternSolid:
+		return 1 // xlPatternSolid
+	case FillPatternMediumGray:
+		return -4124 // xlPatternGray50
+	case FillPatternDarkGray:
+		return -4125 // xlPatternGray75
+	case FillPatternLightGray:
+		return -4126 // xlPatternGray25
+	case FillPatternGray125:
+		return -4121 // xlPatternGray16
+	case FillPatternGray0625:
+		return -4127 // xlPatternGray8
+	case FillPatternLightHorizontal:
+		return 5 // xlPatternLightHorizontal
+	case FillPatternLightVertical:
+		return 6 // xlPatternLightVertical
+	case FillPatternLightDown:
+		return 7 // xlPatternLightDown
+	case FillPatternLightUp:
+		return 8 // xlPatternLightUp
+	case FillPatternLightGrid:
+		return 15 // xlPatternLightGrid
+	case FillPatternLightTrellis:
+		return 18 // xlPatternLightTrellis
+	case FillPatternDarkHorizontal:
+		return 2 // xlPatternDarkHorizontal
+	case FillPatternDarkVertical:
+		return 3 // xlPatternDarkVertical
+	case FillPatternDarkDown:
+		return 4 // xlPatternDarkDown
+	case FillPatternDarkUp:
+		return 14 // xlPatternDarkUp
+	case FillPatternDarkGrid:
+		return -4162 // xlPatternDarkGrid
+	case FillPatternDarkTrellis:
+		return -4166 // xlPatternDarkTrellis
+	case FillPatternNone:
+		return -4142 // xlPatternNone
+	default:
+		return -4142 // xlPatternNone
+	}
 }
 
 func normalizePath(path string) string {
