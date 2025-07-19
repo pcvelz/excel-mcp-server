@@ -9,8 +9,6 @@ import (
 type PagingStrategy interface {
 	// CalculatePagingRanges は利用可能なページング範囲のリストを返す
 	CalculatePagingRanges() []string
-	// ValidatePagingRange は指定された範囲が有効かどうかを検証する
-	ValidatePagingRange(rangeStr string) error
 }
 
 // ExcelizeFixedSizePagingStrategy は固定サイズでページング範囲を計算する戦略
@@ -73,34 +71,6 @@ func (s *ExcelizeFixedSizePagingStrategy) CalculatePagingRanges() []string {
 	return ranges
 }
 
-// ValidatePagingRange は指定された範囲が有効かどうかを検証する
-func (s *ExcelizeFixedSizePagingStrategy) ValidatePagingRange(rangeStr string) error {
-	startCol, startRow, endCol, endRow, err := ParseRange(rangeStr)
-	if err != nil {
-		return fmt.Errorf("invalid range format: %v", err)
-	}
-
-	dimStartCol, dimStartRow, dimEndCol, dimEndRow, err := ParseRange(s.dimension)
-	if err != nil {
-		return fmt.Errorf("invalid dimension format: %v", err)
-	}
-
-	// 範囲がシートの次元内に収まっているか確認
-	if startCol < dimStartCol || startRow < dimStartRow ||
-		endCol > dimEndCol || endRow > dimEndRow {
-		return fmt.Errorf("range %s is outside sheet dimensions %s",
-			rangeStr, s.dimension)
-	}
-
-	// セル数が pageSize を超えていないか確認
-	cellCount := (endRow - startRow + 1) * (endCol - startCol + 1)
-	if cellCount > s.pageSize {
-		return fmt.Errorf("range contains %d cells, exceeding page size of %d",
-			cellCount, s.pageSize)
-	}
-
-	return nil
-}
 
 func NewOlePagingStrategy(pageSize int, worksheet *OleWorksheet) (PagingStrategy, error) {
 	if worksheet == nil {
@@ -186,34 +156,6 @@ func (s *OleFixedSizePagingStrategy) CalculatePagingRanges() []string {
 	return ranges
 }
 
-// ValidatePagingRange は指定された範囲が有効かどうかを検証する
-func (s *OleFixedSizePagingStrategy) ValidatePagingRange(rangeStr string) error {
-	startCol, startRow, endCol, endRow, err := ParseRange(rangeStr)
-	if err != nil {
-		return fmt.Errorf("invalid range format: %v", err)
-	}
-
-	dimStartCol, dimStartRow, dimEndCol, dimEndRow, err := ParseRange(s.dimension)
-	if err != nil {
-		return fmt.Errorf("invalid dimension format: %v", err)
-	}
-
-	// 範囲がシートの次元内に収まっているか確認
-	if startCol < dimStartCol || startRow < dimStartRow ||
-		endCol > dimEndCol || endRow > dimEndRow {
-		return fmt.Errorf("range %s is outside sheet dimensions %s",
-			rangeStr, s.dimension)
-	}
-
-	// セル数が pageSize を超えていないか確認
-	cellCount := (endRow - startRow + 1) * (endCol - startCol + 1)
-	if cellCount > s.pageSize {
-		return fmt.Errorf("range contains %d cells, exceeding page size of %d",
-			cellCount, s.pageSize)
-	}
-
-	return nil
-}
 
 // PrintAreaPagingStrategy は印刷範囲とページ区切りに基づいてページング範囲を計算する戦略
 type PrintAreaPagingStrategy struct {
@@ -304,45 +246,6 @@ func (s *PrintAreaPagingStrategy) CalculatePagingRanges() []string {
 	return s.calculateRangesFromBreaks(printArea, breaks)
 }
 
-// ValidatePagingRange は指定された範囲が印刷範囲内に収まっているか検証する
-func (s *PrintAreaPagingStrategy) ValidatePagingRange(rangeStr string) error {
-	printArea, err := s.getPrintArea()
-	if err != nil {
-		return fmt.Errorf("failed to get print area: %w", err)
-	}
-	if printArea == "" {
-		return fmt.Errorf("print area is not set")
-	}
-
-	// 印刷範囲を解析
-	paStartCol, paStartRow, paEndCol, paEndRow, err := ParseRange(printArea)
-	if err != nil {
-		return fmt.Errorf("invalid print area format: %w", err)
-	}
-
-	// 検証対象の範囲を解析
-	startCol, startRow, endCol, endRow, err := ParseRange(rangeStr)
-	if err != nil {
-		return fmt.Errorf("invalid range format: %w", err)
-	}
-
-	// 範囲が印刷範囲内に収まっているか確認
-	if startCol < paStartCol || startRow < paStartRow ||
-		endCol > paEndCol || endRow > paEndRow {
-		return fmt.Errorf("range %s is outside print area %s",
-			rangeStr, printArea)
-	}
-
-	// ページ区切り位置と一致するか確認
-	ranges := s.CalculatePagingRanges()
-	for _, r := range ranges {
-		if r == rangeStr {
-			return nil
-		}
-	}
-
-	return fmt.Errorf("range %s does not match any page break boundary", rangeStr)
-}
 
 // PagingRangeService はページング処理を提供するサービス
 type PagingRangeService struct {
@@ -359,10 +262,6 @@ func (s *PagingRangeService) GetPagingRanges() []string {
 	return s.strategy.CalculatePagingRanges()
 }
 
-// ValidatePagingRange は指定された範囲が有効かどうかを検証する
-func (s *PagingRangeService) ValidatePagingRange(rangeStr string) error {
-	return s.strategy.ValidatePagingRange(rangeStr)
-}
 
 // FilterRemainingPagingRanges は未読の範囲のリストを返す
 func (s *PagingRangeService) FilterRemainingPagingRanges(allRanges []string, knownRanges []string) []string {

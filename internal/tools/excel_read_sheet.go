@@ -98,10 +98,13 @@ func readSheet(fileAbsolutePath string, sheetName string, valueRange string, sho
 
 	// Find next paging range if current range matches a paging range
 	nextRange := pagingService.FindNextRange(allRanges, currentRange)
-
-	// 範囲の検証
-	if err := pagingService.ValidatePagingRange(currentRange); err != nil {
-		return imcp.NewToolResultInvalidArgumentError(fmt.Sprintf("invalid range: %v", err)), nil
+	// Validate the current range against the used range
+	usedRange, err := worksheet.GetDimention()
+	if err != nil {
+		return nil, err
+	}
+	if err := validateRangeWithinUsedRange(currentRange, usedRange); err != nil {
+		return imcp.NewToolResultInvalidArgumentError(err.Error()), nil
 	}
 
 	// 範囲を解析
@@ -146,4 +149,26 @@ func readSheet(fileAbsolutePath string, sheetName string, valueRange string, sho
 		result += "<p>This is the last range or no more ranges available.</p>\n"
 	}
 	return mcp.NewToolResultText(result), nil
+}
+
+func validateRangeWithinUsedRange(targetRange, usedRange string) error {
+	// Parse target range
+	targetStartCol, targetStartRow, targetEndCol, targetEndRow, err := excel.ParseRange(targetRange)
+	if err != nil {
+		return fmt.Errorf("failed to parse target range: %w", err)
+	}
+
+	// Parse used range
+	usedStartCol, usedStartRow, usedEndCol, usedEndRow, err := excel.ParseRange(usedRange)
+	if err != nil {
+		return fmt.Errorf("failed to parse used range: %w", err)
+	}
+
+	// Check if target range is within used range
+	if targetStartCol < usedStartCol || targetStartRow < usedStartRow ||
+		targetEndCol > usedEndCol || targetEndRow > usedEndRow {
+		return fmt.Errorf("range is outside of used range: %s is not within %s", targetRange, usedRange)
+	}
+
+	return nil
 }
