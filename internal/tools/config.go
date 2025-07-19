@@ -9,7 +9,7 @@ type EnvConfig struct {
 	EXCEL_MCP_PAGING_CELLS_LIMIT int
 }
 
-var configSchema = z.Struct(z.Schema{
+var configSchema = z.Struct(z.Shape{
 	"EXCEL_MCP_PAGING_CELLS_LIMIT": z.Int().GT(0).Default(4000),
 })
 

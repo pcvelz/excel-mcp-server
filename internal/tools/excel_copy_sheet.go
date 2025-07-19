@@ -18,7 +18,7 @@ type ExcelCopySheetArguments struct {
 	DstSheetName     string `zog:"dstSheetName"`
 }
 
-var excelCopySheetArgumentsSchema = z.Struct(z.Schema{
+var excelCopySheetArgumentsSchema = z.Struct(z.Shape{
 	"fileAbsolutePath": z.String().Required(),
 	"srcSheetName":     z.String().Required(),
 	"dstSheetName":     z.String().Required(),

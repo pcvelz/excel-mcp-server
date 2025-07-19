@@ -19,7 +19,7 @@ type ExcelCreateTableArguments struct {
 	TableName        string `zog:"tableName"`
 }
 
-var excelCreateTableArgumentsSchema = z.Struct(z.Schema{
+var excelCreateTableArgumentsSchema = z.Struct(z.Shape{
 	"fileAbsolutePath": z.String().Test(AbsolutePathTest()).Required(),
 	"sheetName":        z.String().Required(),
 	"range":            z.String(),
