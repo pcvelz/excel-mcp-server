@@ -20,7 +20,7 @@ type ExcelWriteToSheetArguments struct {
 	Values           [][]string `zog:"values"`
 }
 
-var excelWriteToSheetArgumentsSchema = z.Struct(z.Schema{
+var excelWriteToSheetArgumentsSchema = z.Struct(z.Shape{
 	"fileAbsolutePath": z.String().Test(AbsolutePathTest()).Required(),
 	"sheetName":        z.String().Required(),
 	"newSheet":         z.Bool().Required().Default(false),
