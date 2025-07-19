@@ -154,6 +154,26 @@ Copy existing sheet to a new sheet
 - `dstSheetName`
     - Sheet name to be copied
 
+### `excel_format_range`
+
+Format cells in the Excel sheet with style information
+
+**Arguments:**
+- `fileAbsolutePath`
+    - Absolute path to the Excel file
+- `sheetName`
+    - Sheet name in the Excel file
+- `range`
+    - Range of cells in the Excel sheet (e.g., "A1:C3")
+- `styles`
+    - 2D array of style objects for each cell. If a cell does not change style, use null. The number of items of the array must match the range size.
+    - Style object properties:
+        - `border`: Array of border styles (type, color, style)
+        - `font`: Font styling (bold, italic, underline, size, strike, color, vertAlign)
+        - `fill`: Fill/background styling (type, pattern, color, shading)
+        - `numFmt`: Custom number format string
+        - `decimalPlaces`: Number of decimal places (0-30)
+
 <h2 id="configuration">Configuration</h2>
 
 You can change the MCP Server behaviors by the following environment variables:
