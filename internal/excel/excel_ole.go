@@ -293,6 +293,66 @@ func (o *OleWorksheet) GetFormula(cell string) (string, error) {
 	return formula, nil
 }
 
+func (o *OleWorksheet) GetRawValue(cell string) (string, error) {
+	range_ := oleutil.MustGetProperty(o.worksheet, "Range", cell).ToIDispatch()
+	defer range_.Release()
+	value := oleutil.MustGetProperty(range_, "Value").Value()
+	switch v := value.(type) {
+	case string:
+		return v, nil
+	case float64:
+		return fmt.Sprintf("%v", v), nil
+	case nil:
+		return "", nil
+	default:
+		return fmt.Sprintf("%v", v), nil
+	}
+}
+
+func (o *OleWorksheet) GetCellType(cell string) (string, error) {
+	range_ := oleutil.MustGetProperty(o.worksheet, "Range", cell).ToIDispatch()
+	defer range_.Release()
+	value := oleutil.MustGetProperty(range_, "Value").Value()
+
+	// Check if cell has a formula
+	formula := oleutil.MustGetProperty(range_, "Formula").ToString()
+	if formula != "" && len(formula) > 0 && formula[0] == '=' {
+		return "formula", nil
+	}
+
+	// Determine type based on value
+	switch value.(type) {
+	case bool:
+		return "bool", nil
+	case float64:
+		// Check if it's a date by looking at NumberFormat
+		numFmt := oleutil.MustGetProperty(range_, "NumberFormat").ToString()
+		if isDateFormat(numFmt) {
+			return "date", nil
+		}
+		return "number", nil
+	case string:
+		return "string", nil
+	case nil:
+		return "empty", nil
+	default:
+		return "unknown", nil
+	}
+}
+
+func isDateFormat(format string) bool {
+	// Check for specific date format patterns to avoid false positives
+	// (e.g., "medium" contains 'm' and 'd' but is not a date format)
+	datePatterns := []string{"d-mmm", "dd/mm", "mm/dd", "yyyy", "d/m/y", "m/d/y", "yy/", "/yy", "mmm", "ddd"}
+	lower := strings.ToLower(format)
+	for _, p := range datePatterns {
+		if strings.Contains(lower, p) {
+			return true
+		}
+	}
+	return false
+}
+
 func (o *OleWorksheet) GetDimention() (string, error) {
 	range_ := oleutil.MustGetProperty(o.worksheet, "UsedRange").ToIDispatch()
 	defer range_.Release()
