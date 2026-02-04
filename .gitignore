@@ -1,8 +1,5 @@
 /node_modules
-/dist
 /memory-bank
-# Added by goreleaser init:
-dist/
 # RooFlow
 .roo
 .roomodes
@@ -11,4 +8,7 @@ dist/
 repomix-output.xml
 # Claude Code
 CLAUDE.local.md
-.claude/settings.local.json
+.claude/
+
+# Binary
+/excel-mcp-server
