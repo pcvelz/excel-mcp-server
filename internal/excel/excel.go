@@ -62,11 +62,21 @@ type PivotTable struct {
 }
 
 type CellStyle struct {
-	Border        []Border   `yaml:"border,omitempty"`
-	Font          *FontStyle `yaml:"font,omitempty"`
-	Fill          *FillStyle `yaml:"fill,omitempty"`
-	NumFmt        *string    `yaml:"numFmt,omitempty"`
-	DecimalPlaces *int       `yaml:"decimalPlaces,omitempty"`
+	Border        []Border        `yaml:"border,omitempty"`
+	Font          *FontStyle      `yaml:"font,omitempty"`
+	Fill          *FillStyle      `yaml:"fill,omitempty"`
+	Alignment     *AlignmentStyle `yaml:"alignment,omitempty"`
+	NumFmt        *string         `yaml:"numFmt,omitempty"`
+	DecimalPlaces *int            `yaml:"decimalPlaces,omitempty"`
+}
+
+type AlignmentStyle struct {
+	Horizontal *string `yaml:"horizontal,omitempty"` // left, center, right, fill, justify, centerContinuous, distributed
+	Vertical   *string `yaml:"vertical,omitempty"`   // top, center, bottom, justify, distributed
+	WrapText   *bool   `yaml:"wrapText,omitempty"`
+	ShrinkToFit *bool  `yaml:"shrinkToFit,omitempty"`
+	TextRotation *int  `yaml:"textRotation,omitempty"` // 0-180 or 255 for vertical
+	Indent     *int    `yaml:"indent,omitempty"`
 }
 
 type Border struct {
