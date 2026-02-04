@@ -48,6 +48,14 @@ var excelFormatRangeArgumentsSchema = z.Struct(z.Shape{
 				"color":   z.Slice(z.String().Match(colorPattern)).Default([]string{}),
 				"shading": z.Ptr(z.StringLike[excel.FillShading]().OneOf(excel.FillShadingValues())),
 			})),
+			"alignment": z.Ptr(z.Struct(z.Shape{
+				"horizontal":   z.Ptr(z.String().OneOf([]string{"left", "center", "right", "fill", "justify", "centerContinuous", "distributed"})),
+				"vertical":     z.Ptr(z.String().OneOf([]string{"top", "center", "bottom", "justify", "distributed"})),
+				"wrapText":     z.Ptr(z.Bool()),
+				"shrinkToFit":  z.Ptr(z.Bool()),
+				"textRotation": z.Ptr(z.Int().GTE(0).LTE(255)),
+				"indent":       z.Ptr(z.Int().GTE(0).LTE(250)),
+			})),
 			"numFmt":        z.Ptr(z.String()),
 			"decimalPlaces": z.Ptr(z.Int().GTE(0).LTE(30)),
 		}),
@@ -150,6 +158,42 @@ func AddExcelFormatRangeTool(server *server.MCPServer) {
 										},
 									},
 									"required": []string{"type", "pattern", "color"},
+								},
+								"alignment": map[string]any{
+									"type":        "object",
+									"description": "Cell alignment settings",
+									"properties": map[string]any{
+										"horizontal": map[string]any{
+											"type":        "string",
+											"description": "Horizontal alignment",
+											"enum":        []string{"left", "center", "right", "fill", "justify", "centerContinuous", "distributed"},
+										},
+										"vertical": map[string]any{
+											"type":        "string",
+											"description": "Vertical alignment",
+											"enum":        []string{"top", "center", "bottom", "justify", "distributed"},
+										},
+										"wrapText": map[string]any{
+											"type":        "boolean",
+											"description": "Wrap text in cell",
+										},
+										"shrinkToFit": map[string]any{
+											"type":        "boolean",
+											"description": "Shrink text to fit cell width",
+										},
+										"textRotation": map[string]any{
+											"type":        "integer",
+											"description": "Text rotation angle (0-180, or 255 for vertical)",
+											"minimum":     0,
+											"maximum":     255,
+										},
+										"indent": map[string]any{
+											"type":        "integer",
+											"description": "Indent level",
+											"minimum":     0,
+											"maximum":     250,
+										},
+									},
 								},
 								"numFmt": map[string]any{
 									"type":        "string",

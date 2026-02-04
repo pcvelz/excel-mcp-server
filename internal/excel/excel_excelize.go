@@ -305,6 +305,30 @@ func convertCellStyleToExcelizeStyle(style *CellStyle) *excelize.Style {
 		result.Fill = fill
 	}
 
+	// Alignment
+	if style.Alignment != nil {
+		alignment := &excelize.Alignment{}
+		if style.Alignment.Horizontal != nil {
+			alignment.Horizontal = *style.Alignment.Horizontal
+		}
+		if style.Alignment.Vertical != nil {
+			alignment.Vertical = *style.Alignment.Vertical
+		}
+		if style.Alignment.WrapText != nil {
+			alignment.WrapText = *style.Alignment.WrapText
+		}
+		if style.Alignment.ShrinkToFit != nil {
+			alignment.ShrinkToFit = *style.Alignment.ShrinkToFit
+		}
+		if style.Alignment.TextRotation != nil {
+			alignment.TextRotation = *style.Alignment.TextRotation
+		}
+		if style.Alignment.Indent != nil {
+			alignment.Indent = *style.Alignment.Indent
+		}
+		result.Alignment = alignment
+	}
+
 	// NumFmt
 	if style.NumFmt != nil && *style.NumFmt != "" {
 		result.CustomNumFmt = style.NumFmt
@@ -400,6 +424,39 @@ func convertExcelizeStyleToCellStyle(style *excelize.Style) *CellStyle {
 		}
 		if fill.Type != "" || fill.Pattern != FillPatternNone || len(fill.Color) > 0 || fill.Shading != nil {
 			result.Fill = fill
+		}
+	}
+
+	// Alignment
+	if style.Alignment != nil {
+		alignment := &AlignmentStyle{}
+		hasAlignment := false
+		if style.Alignment.Horizontal != "" {
+			alignment.Horizontal = &style.Alignment.Horizontal
+			hasAlignment = true
+		}
+		if style.Alignment.Vertical != "" {
+			alignment.Vertical = &style.Alignment.Vertical
+			hasAlignment = true
+		}
+		if style.Alignment.WrapText {
+			alignment.WrapText = &style.Alignment.WrapText
+			hasAlignment = true
+		}
+		if style.Alignment.ShrinkToFit {
+			alignment.ShrinkToFit = &style.Alignment.ShrinkToFit
+			hasAlignment = true
+		}
+		if style.Alignment.TextRotation != 0 {
+			alignment.TextRotation = &style.Alignment.TextRotation
+			hasAlignment = true
+		}
+		if style.Alignment.Indent != 0 {
+			alignment.Indent = &style.Alignment.Indent
+			hasAlignment = true
+		}
+		if hasAlignment {
+			result.Alignment = alignment
 		}
 	}
 
