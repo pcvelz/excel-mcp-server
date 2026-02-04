@@ -3,6 +3,8 @@ package tools
 import (
 	"context"
 	"fmt"
+	"regexp"
+	"time"
 
 	z "github.com/Oudwins/zog"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -145,8 +147,9 @@ func writeSheet(fileAbsolutePath string, sheetName string, newSheet bool, rangeS
 				err = worksheet.SetFormula(cell, cellStr)
 				wroteFormula = true
 			} else {
-				// if cellValue is not formula, set it as value
-				err = worksheet.SetValue(cell, cellValue)
+				// Convert ISO dates to time.Time for proper Excel date handling
+				convertedValue := convertValueForExcel(cellValue)
+				err = worksheet.SetValue(cell, convertedValue)
 			}
 			if err != nil {
 				return nil, err
@@ -184,4 +187,49 @@ func writeSheet(fileAbsolutePath string, sheetName string, newSheet bool, rangeS
 
 func isFormula(value string) bool {
 	return len(value) > 0 && value[0] == '='
+}
+
+// ISO date patterns: 2026-02-03, 2026-02-03T10:30:00, 2026-02-03T10:30:00Z, 2026-02-03T10:30:00+02:00
+var isoDatePattern = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}:\d{2}(Z|[+-]\d{2}:\d{2})?)?$`)
+
+// parseISODate tries to parse a string as ISO date and returns time.Time
+// Returns nil if not a valid ISO date
+func parseISODate(value string) *time.Time {
+	if !isoDatePattern.MatchString(value) {
+		return nil
+	}
+
+	// Try parsing with timezone (Z)
+	if t, err := time.Parse("2006-01-02T15:04:05Z", value); err == nil {
+		return &t
+	}
+
+	// Try parsing with timezone offset
+	if t, err := time.Parse("2006-01-02T15:04:05-07:00", value); err == nil {
+		return &t
+	}
+
+	// Try parsing with time (no timezone)
+	if t, err := time.Parse("2006-01-02T15:04:05", value); err == nil {
+		return &t
+	}
+
+	// Try parsing date only
+	if t, err := time.Parse("2006-01-02", value); err == nil {
+		return &t
+	}
+
+	return nil
+}
+
+// convertValueForExcel converts input value to appropriate Excel value
+// - ISO date strings → time.Time (Excel will store as serial)
+// - Other values → pass through
+func convertValueForExcel(value any) any {
+	if str, ok := value.(string); ok {
+		if t := parseISODate(str); t != nil {
+			return *t
+		}
+	}
+	return value
 }
