@@ -175,6 +175,13 @@ Format cells in the Excel sheet with style information
         - `border`: Array of border styles (type, color, style)
         - `font`: Font styling (bold, italic, underline, size, strike, color, vertAlign)
         - `fill`: Fill/background styling (type, pattern, color, shading)
+        - `alignment`: Cell alignment settings
+            - `horizontal`: Horizontal alignment (left, center, right, fill, justify, centerContinuous, distributed)
+            - `vertical`: Vertical alignment (top, center, bottom, justify, distributed)
+            - `wrapText`: Wrap text in cell (boolean)
+            - `shrinkToFit`: Shrink text to fit cell width (boolean)
+            - `textRotation`: Text rotation angle (0-180, or 255 for vertical)
+            - `indent`: Indent level (0-250)
         - `numFmt`: Custom number format string
         - `decimalPlaces`: Number of decimal places (0-30)
 
