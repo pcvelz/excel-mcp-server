@@ -33,6 +33,11 @@ type StyleRegistry struct {
 	fillHashToID map[string]string // styleHash -> styleID
 	fillCounter  int
 
+	// Alignment styles
+	alignmentStyles   map[string]string // styleID -> YAML string
+	alignmentHashToID map[string]string // styleHash -> styleID
+	alignmentCounter  int
+
 	// Number format styles
 	numFmtStyles   map[string]string // styleID -> NumFmt
 	numFmtHashToID map[string]string // styleHash -> styleID
@@ -46,21 +51,24 @@ type StyleRegistry struct {
 
 func NewStyleRegistry() *StyleRegistry {
 	return &StyleRegistry{
-		borderStyles:    make(map[string]string),
-		borderHashToID:  make(map[string]string),
-		borderCounter:   0,
-		fontStyles:      make(map[string]string),
-		fontHashToID:    make(map[string]string),
-		fontCounter:     0,
-		fillStyles:      make(map[string]string),
-		fillHashToID:    make(map[string]string),
-		fillCounter:     0,
-		numFmtStyles:    make(map[string]string),
-		numFmtHashToID:  make(map[string]string),
-		numFmtCounter:   0,
-		decimalStyles:   make(map[string]string),
-		decimalHashToID: make(map[string]string),
-		decimalCounter:  0,
+		borderStyles:      make(map[string]string),
+		borderHashToID:    make(map[string]string),
+		borderCounter:     0,
+		fontStyles:        make(map[string]string),
+		fontHashToID:      make(map[string]string),
+		fontCounter:       0,
+		fillStyles:        make(map[string]string),
+		fillHashToID:      make(map[string]string),
+		fillCounter:       0,
+		alignmentStyles:   make(map[string]string),
+		alignmentHashToID: make(map[string]string),
+		alignmentCounter:  0,
+		numFmtStyles:      make(map[string]string),
+		numFmtHashToID:    make(map[string]string),
+		numFmtCounter:     0,
+		decimalStyles:     make(map[string]string),
+		decimalHashToID:   make(map[string]string),
+		decimalCounter:    0,
 	}
 }
 
@@ -92,6 +100,13 @@ func (sr *StyleRegistry) RegisterStyle(cellStyle *excel.CellStyle) []string {
 		}
 	}
 
+	// Register alignment style
+	if cellStyle.Alignment != nil {
+		if alignmentID := sr.RegisterAlignmentStyle(cellStyle.Alignment); alignmentID != "" {
+			styleIDs = append(styleIDs, alignmentID)
+		}
+	}
+
 	// Register number format style
 	if cellStyle.NumFmt != nil && *cellStyle.NumFmt != "" {
 		if numFmtID := sr.RegisterNumFmtStyle(*cellStyle.NumFmt); numFmtID != "" {
@@ -114,6 +129,9 @@ func (sr *StyleRegistry) isEmptyStyle(style *excel.CellStyle) bool {
 		return false
 	}
 	if style.Fill != nil && style.Fill.Type != "" {
+		return false
+	}
+	if style.Alignment != nil {
 		return false
 	}
 	return true
@@ -210,6 +228,33 @@ func (sr *StyleRegistry) RegisterFillStyle(fill *excel.FillStyle) string {
 	return styleID
 }
 
+func (sr *StyleRegistry) RegisterAlignmentStyle(alignment *excel.AlignmentStyle) string {
+	if alignment == nil {
+		return ""
+	}
+
+	yamlStr := convertToYAMLFlow(alignment)
+	if yamlStr == "" {
+		return ""
+	}
+
+	styleHash := calculateYamlHash(yamlStr)
+	if styleHash == "" {
+		return ""
+	}
+
+	if existingID, exists := sr.alignmentHashToID[styleHash]; exists {
+		return existingID
+	}
+
+	sr.alignmentCounter++
+	styleID := fmt.Sprintf("a%d", sr.alignmentCounter)
+	sr.alignmentStyles[styleID] = yamlStr
+	sr.alignmentHashToID[styleHash] = styleID
+
+	return styleID
+}
+
 func (sr *StyleRegistry) RegisterNumFmtStyle(numFmt string) string {
 	if numFmt == "" {
 		return ""
@@ -260,7 +305,7 @@ func (sr *StyleRegistry) RegisterDecimalStyle(decimal int) string {
 }
 
 func (sr *StyleRegistry) GenerateStyleDefinitions() string {
-	totalCount := len(sr.borderStyles) + len(sr.fontStyles) + len(sr.fillStyles) + len(sr.numFmtStyles) + len(sr.decimalStyles)
+	totalCount := len(sr.borderStyles) + len(sr.fontStyles) + len(sr.fillStyles) + len(sr.alignmentStyles) + len(sr.numFmtStyles) + len(sr.decimalStyles)
 	if totalCount == 0 {
 		return ""
 	}
@@ -277,6 +322,9 @@ func (sr *StyleRegistry) GenerateStyleDefinitions() string {
 
 	// Generate fill style definitions
 	result.WriteString(sr.generateStyleDefTag(sr.fillStyles, "fill"))
+
+	// Generate alignment style definitions
+	result.WriteString(sr.generateStyleDefTag(sr.alignmentStyles, "alignment"))
 
 	// Generate number format style definitions
 	result.WriteString(sr.generateStyleDefTag(sr.numFmtStyles, "numFmt"))
@@ -349,7 +397,7 @@ func createHTMLTable(startCol int, startRow int, endCol int, endRow int, extract
 }
 
 func CreateHTMLTableOfValuesWithStyle(worksheet excel.Worksheet, startCol int, startRow int, endCol int, endRow int) (*string, error) {
-	return createHTMLTableWithStyle(startCol, startRow, endCol, endRow,
+	return createHTMLTableWithStyleAndType(worksheet, startCol, startRow, endCol, endRow,
 		func(cellRange string) (string, error) {
 			return worksheet.GetValue(cellRange)
 		},
@@ -359,7 +407,7 @@ func CreateHTMLTableOfValuesWithStyle(worksheet excel.Worksheet, startCol int, s
 }
 
 func CreateHTMLTableOfFormulaWithStyle(worksheet excel.Worksheet, startCol int, startRow int, endCol int, endRow int) (*string, error) {
-	return createHTMLTableWithStyle(startCol, startRow, endCol, endRow,
+	return createHTMLTableWithStyleAndType(worksheet, startCol, startRow, endCol, endRow,
 		func(cellRange string) (string, error) {
 			return worksheet.GetFormula(cellRange)
 		},
@@ -416,6 +464,81 @@ func createHTMLTableWithStyle(startCol int, startRow int, endCol int, endRow int
 	result.WriteString("</table>")
 
 	// スタイル定義とテーブルを結合
+	var finalResult strings.Builder
+	styleDefinitions := registry.GenerateStyleDefinitions()
+	if styleDefinitions != "" {
+		finalResult.WriteString(styleDefinitions)
+	}
+
+	finalResult.WriteString("<h2>Sheet Data</h2>\n")
+	finalResult.WriteString(result.String())
+
+	finalResultStr := finalResult.String()
+	return &finalResultStr, nil
+}
+
+func createHTMLTableWithStyleAndType(worksheet excel.Worksheet, startCol int, startRow int, endCol int, endRow int, extractor func(cellRange string) (string, error), styleExtractor func(cellRange string) (*excel.CellStyle, error)) (*string, error) {
+	registry := NewStyleRegistry()
+
+	var result strings.Builder
+	result.WriteString("<table>\n<tr><th></th>")
+
+	// Column headers
+	for col := startCol; col <= endCol; col++ {
+		name, _ := excelize.ColumnNumberToName(col)
+		result.WriteString(fmt.Sprintf("<th>%s</th>", name))
+	}
+	result.WriteString("</tr>\n")
+
+	// Data rows with style, type, and raw value
+	for row := startRow; row <= endRow; row++ {
+		result.WriteString("<tr>")
+		result.WriteString(fmt.Sprintf("<th>%d</th>", row))
+
+		for col := startCol; col <= endCol; col++ {
+			axis, _ := excelize.CoordinatesToCellName(col, row)
+			value, _ := extractor(axis)
+
+			var attrs []string
+
+			// Style info
+			if styleExtractor != nil {
+				cellStyle, err := styleExtractor(axis)
+				if err == nil && cellStyle != nil {
+					styleIDs := registry.RegisterStyle(cellStyle)
+					if len(styleIDs) > 0 {
+						attrs = append(attrs, fmt.Sprintf("style-ref=\"%s\"", strings.Join(styleIDs, " ")))
+					}
+				}
+			}
+
+			// Type info
+			cellType, err := worksheet.GetCellType(axis)
+			if err == nil && cellType != "" && cellType != "unknown" {
+				attrs = append(attrs, fmt.Sprintf("type=\"%s\"", cellType))
+			}
+
+			// Raw value (only if different from formatted value)
+			rawValue, err := worksheet.GetRawValue(axis)
+			if err == nil && rawValue != "" && rawValue != value {
+				attrs = append(attrs, fmt.Sprintf("raw=\"%s\"", html.EscapeString(rawValue)))
+			}
+
+			var tdTag string
+			if len(attrs) > 0 {
+				tdTag = fmt.Sprintf("<td %s>", strings.Join(attrs, " "))
+			} else {
+				tdTag = "<td>"
+			}
+
+			result.WriteString(fmt.Sprintf("%s%s</td>", tdTag, strings.ReplaceAll(html.EscapeString(value), "\n", "<br>")))
+		}
+		result.WriteString("</tr>\n")
+	}
+
+	result.WriteString("</table>")
+
+	// Combine style definitions and table
 	var finalResult strings.Builder
 	styleDefinitions := registry.GenerateStyleDefinitions()
 	if styleDefinitions != "" {

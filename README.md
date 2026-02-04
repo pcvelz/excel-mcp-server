@@ -11,6 +11,18 @@
 
 A Model Context Protocol (MCP) server that reads and writes MS Excel data.
 
+## Why Fork?
+
+This fork ([pcvelz/excel-mcp-server](https://github.com/pcvelz/excel-mcp-server)) adds features needed for real-world bookkeeping workflows that are not yet available upstream:
+
+- **Alignment support in `excel_format_range`** — set horizontal/vertical alignment (e.g., left-align numbers)
+- **Alignment in `showStyle` output** — read back cell alignment when using `showStyle: true`
+- **Cell type attributes** — `type` attribute (string, number, formula, date) in `showStyle` output
+- **Raw value attributes** — `raw` attribute showing unformatted values alongside displayed values
+- **ISO date auto-conversion** — write ISO date strings (e.g., `"2026-02-03"`) and they're automatically converted to Excel date serial numbers
+
+See the [upstream comparison](https://github.com/negokaz/excel-mcp-server/compare/main...pcvelz:excel-mcp-server:main) for full diff.
+
 ## Features
 
 - Read/Write text values
@@ -103,6 +115,10 @@ Read values from Excel sheet with pagination.
     - Show formula instead of value [default: false]
 - `showStyle`
     - Show style information for cells [default: false]
+    - When enabled, output includes:
+        - `style-ref`: References to style definitions (border, font, fill, alignment, numFmt)
+        - `type`: Cell type (number, string, date, bool, formula, error)
+        - `raw`: Raw/unformatted value (shown when different from displayed value, e.g., `raw="45691"` for a date displayed as "3-Feb")
 
 ### `excel_screen_capture`
 
@@ -131,6 +147,7 @@ Write values to the Excel sheet.
     - Range of cells to read in the Excel sheet (e.g., "A1:C10").
 - `values`
     - Values to write to the Excel sheet. If the value is a formula, it should start with "="
+    - ISO date strings (e.g., `"2026-02-03"`, `"2026-02-03T10:30:00"`, `"2026-02-03T10:30:00Z"`) are automatically converted to Excel date serial numbers
 
 ### `excel_create_table`
 
@@ -175,6 +192,13 @@ Format cells in the Excel sheet with style information
         - `border`: Array of border styles (type, color, style)
         - `font`: Font styling (bold, italic, underline, size, strike, color, vertAlign)
         - `fill`: Fill/background styling (type, pattern, color, shading)
+        - `alignment`: Cell alignment settings
+            - `horizontal`: Horizontal alignment (left, center, right, fill, justify, centerContinuous, distributed)
+            - `vertical`: Vertical alignment (top, center, bottom, justify, distributed)
+            - `wrapText`: Wrap text in cell (boolean)
+            - `shrinkToFit`: Shrink text to fit cell width (boolean)
+            - `textRotation`: Text rotation angle (0-180, or 255 for vertical)
+            - `indent`: Indent level (0-250)
         - `numFmt`: Custom number format string
         - `decimalPlaces`: Number of decimal places (0-30)
 
