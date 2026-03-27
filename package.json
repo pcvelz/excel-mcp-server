@@ -1,8 +1,8 @@
 {
   "name": "excel-mcp-server-pcvelz",
-  "version": "0.15.0",
+  "version": "0.15.1",
   "description": "An MCP server that reads and writes spreadsheet data to MS Excel file",
-  "author": "negokaz",
+  "author": "pcvelz",
   "license": "MIT",
   "bin": {
     "excel-mcp-server": "dist/launcher.js"

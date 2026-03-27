@@ -1,13 +1,8 @@
 # Excel MCP Server
 
-<img src="https://github.com/negokaz/excel-mcp-server/blob/main/docs/img/icon-800.png?raw=true" width="128">
+<img src="https://github.com/pcvelz/excel-mcp-server/blob/main/docs/img/icon-800.png?raw=true" width="128">
 
-<a href="https://glama.ai/mcp/servers/@negokaz/excel-mcp-server">
-  <img width="380" height="200" src="https://glama.ai/mcp/servers/@negokaz/excel-mcp-server/badge" alt="Excel Server MCP server" />
-</a>
-
-[![NPM Version](https://img.shields.io/npm/v/@negokaz/excel-mcp-server)](https://www.npmjs.com/package/@negokaz/excel-mcp-server)
-[![smithery badge](https://smithery.ai/badge/@negokaz/excel-mcp-server)](https://smithery.ai/server/@negokaz/excel-mcp-server)
+[![NPM Version](https://img.shields.io/npm/v/excel-mcp-server-pcvelz)](https://www.npmjs.com/package/excel-mcp-server-pcvelz)
 
 A Model Context Protocol (MCP) server that reads and writes MS Excel data.
 
@@ -58,7 +53,7 @@ For Windows:
     "mcpServers": {
         "excel": {
             "command": "cmd",
-            "args": ["/c", "npx", "--yes", "@negokaz/excel-mcp-server"],
+            "args": ["/c", "npx", "--yes", "excel-mcp-server-pcvelz"],
             "env": {
                 "EXCEL_MCP_PAGING_CELLS_LIMIT": "4000"
             }
@@ -73,7 +68,7 @@ For other platforms:
     "mcpServers": {
         "excel": {
             "command": "npx",
-            "args": ["--yes", "@negokaz/excel-mcp-server"],
+            "args": ["--yes", "excel-mcp-server-pcvelz"],
             "env": {
                 "EXCEL_MCP_PAGING_CELLS_LIMIT": "4000"
             }
@@ -84,10 +79,10 @@ For other platforms:
 
 ### Installing via Smithery
 
-To install Excel MCP Server for Claude Desktop automatically via [Smithery](https://smithery.ai/server/@negokaz/excel-mcp-server):
+To install Excel MCP Server for Claude Desktop automatically via [Smithery](https://smithery.ai/server/excel-mcp-server-pcvelz):
 
 ```bash
-npx -y @smithery/cli install @negokaz/excel-mcp-server --client claude
+npx -y @smithery/cli install excel-mcp-server-pcvelz --client claude
 ```
 
 <h2 id="tools">Tools</h2>
