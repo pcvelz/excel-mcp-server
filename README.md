@@ -136,7 +136,7 @@ Write values to the Excel sheet.
     - Absolute path to the Excel file
 - `sheetName`
     - Sheet name in the Excel file
-- `newSheet`
+- `newSheet` (optional, default: `false`)
     - Create a new sheet if true, otherwise write to the existing sheet
 - `range`
     - Range of cells to read in the Excel sheet (e.g., "A1:C10").

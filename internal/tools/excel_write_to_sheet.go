@@ -25,7 +25,7 @@ type ExcelWriteToSheetArguments struct {
 var excelWriteToSheetArgumentsSchema = z.Struct(z.Shape{
 	"fileAbsolutePath": z.String().Test(AbsolutePathTest()).Required(),
 	"sheetName":        z.String().Required(),
-	"newSheet":         z.Bool().Required().Default(false),
+	"newSheet":         z.Bool().Default(false),
 	"range":            z.String().Required(),
 	"values":           z.Slice(z.Slice(z.String())).Required(),
 })
@@ -42,8 +42,7 @@ func AddExcelWriteToSheetTool(server *server.MCPServer) {
 			mcp.Description("Sheet name in the Excel file"),
 		),
 		mcp.WithBoolean("newSheet",
-			mcp.Required(),
-			mcp.Description("Create a new sheet if true, otherwise write to the existing sheet"),
+			mcp.Description("Create a new sheet if true, otherwise write to the existing sheet. Defaults to false."),
 		),
 		mcp.WithString("range",
 			mcp.Required(),
@@ -83,15 +82,22 @@ func handleWriteToSheet(ctx context.Context, request mcp.CallToolRequest) (*mcp.
 	}
 
 	// zog が any type のスキーマをサポートしていないため、自力で実装
-	valuesArg, ok := request.GetArguments()["values"].([]any)
+	rawValues, present := request.GetArguments()["values"]
+	if !present {
+		return imcp.NewToolResultInvalidArgumentError("Parameter 'values' is required but was not provided. Expected a non-empty 2D array of rows × cells (e.g. [[\"a\", \"b\"], [\"c\", \"d\"]])."), nil
+	}
+	valuesArg, ok := rawValues.([]any)
 	if !ok {
-		return imcp.NewToolResultInvalidArgumentError("values must be a 2D array"), nil
+		return imcp.NewToolResultInvalidArgumentError(fmt.Sprintf("Parameter 'values' must be a non-empty 2D array of rows × cells. Received type: %T", rawValues)), nil
+	}
+	if len(valuesArg) == 0 {
+		return imcp.NewToolResultInvalidArgumentError("Parameter 'values' must be a non-empty 2D array of rows × cells. Received an empty array."), nil
 	}
 	values := make([][]any, len(valuesArg))
 	for i, v := range valuesArg {
 		value, ok := v.([]any)
 		if !ok {
-			return imcp.NewToolResultInvalidArgumentError("values must be a 2D array"), nil
+			return imcp.NewToolResultInvalidArgumentError(fmt.Sprintf("Parameter 'values' must be a 2D array of rows × cells, but row %d is not an array. Received type: %T", i, v)), nil
 		}
 		values[i] = value
 	}
