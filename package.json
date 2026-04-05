@@ -1,6 +1,6 @@
 {
   "name": "excel-mcp-server-pcvelz",
-  "version": "0.15.2",
+  "version": "0.15.3",
   "description": "An MCP server that reads and writes spreadsheet data to MS Excel file",
   "author": "pcvelz",
   "license": "MIT",

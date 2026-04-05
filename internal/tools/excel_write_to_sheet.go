@@ -153,6 +153,19 @@ func writeSheet(fileAbsolutePath string, sheetName string, newSheet bool, rangeS
 				err = worksheet.SetFormula(cell, cellStr)
 				wroteFormula = true
 			} else {
+				// No-op preservation: if the incoming string matches the cell's
+				// current formatted value, skip the write. This preserves the
+				// underlying cell type (e.g. numeric date serials) so that
+				// conditional formatting rules comparing against dates continue
+				// to fire. Without this, a round-trip read-then-write would
+				// convert typed dates into plain text strings, silently breaking
+				// any date-based conditional formatting.
+				if cellStr, ok := cellValue.(string); ok {
+					if existing, gerr := worksheet.GetValue(cell); gerr == nil && existing == cellStr {
+						// Skip write — same display value, preserve underlying type.
+						continue
+					}
+				}
 				// Convert ISO dates to time.Time for proper Excel date handling
 				convertedValue := convertValueForExcel(cellValue)
 				err = worksheet.SetValue(cell, convertedValue)
