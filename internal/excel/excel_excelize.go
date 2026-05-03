@@ -77,6 +77,14 @@ func (e *ExcelizeExcel) GetSheets() ([]Worksheet, error) {
 // we ignore this restriction.
 // https://github.com/qax-os/excelize/blob/v2.9.0/file.go#L71-L73
 func (w *ExcelizeExcel) Save() error {
+	// Force a one-time full recalculation on next file open. Excelize does not
+	// update cached <v> values for cells whose formulas depend on writes we
+	// just made; in workbooks with calcMode="manual" this leaves stale values
+	// visible in Excel/LibreOffice/Numbers until the user manually recalculates.
+	fullCalc := true
+	if err := w.file.SetCalcProps(&excelize.CalcPropsOptions{FullCalcOnLoad: &fullCalc}); err != nil {
+		return err
+	}
 	file, err := os.OpenFile(filepath.Clean(w.file.Path), os.O_WRONLY|os.O_TRUNC|os.O_CREATE, os.ModePerm)
 	if err != nil {
 		return err

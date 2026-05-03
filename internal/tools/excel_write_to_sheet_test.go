@@ -218,3 +218,72 @@ func TestWriteToSheet_StillWritesWhenValueDiffers(t *testing.T) {
 		t.Errorf("expected A1=world, got %q", got)
 	}
 }
+
+// readWorkbookXML extracts xl/workbook.xml from an .xlsx file.
+func readWorkbookXML(t *testing.T, path string) string {
+	t.Helper()
+	r, err := zip.OpenReader(path)
+	if err != nil {
+		t.Fatalf("open zip: %v", err)
+	}
+	defer r.Close()
+	for _, f := range r.File {
+		if f.Name == "xl/workbook.xml" {
+			rc, err := f.Open()
+			if err != nil {
+				t.Fatalf("open workbook.xml: %v", err)
+			}
+			defer rc.Close()
+			b, err := io.ReadAll(rc)
+			if err != nil {
+				t.Fatalf("read workbook.xml: %v", err)
+			}
+			return string(b)
+		}
+	}
+	t.Fatalf("xl/workbook.xml not found in %s", path)
+	return ""
+}
+
+// TestWriteToSheet_SetsFullCalcOnLoad verifies that after a write+save cycle,
+// xl/workbook.xml contains fullCalcOnLoad="1". This forces consumers
+// (Excel/LibreOffice/Numbers) to perform a one-time recalc on next open,
+// so cached <v> values for formulas that depend on the just-written cells
+// are refreshed even when calcMode="manual".
+func TestWriteToSheet_SetsFullCalcOnLoad(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "fullcalc.xlsx")
+
+	// Build a workbook in calcMode="manual" with a formula whose cached
+	// value will go stale once we change its dependency.
+	f := excelize.NewFile()
+	if err := f.SetCellValue("Sheet1", "A1", 10.0); err != nil {
+		t.Fatalf("SetCellValue A1: %v", err)
+	}
+	if err := f.SetCellFormula("Sheet1", "B1", "A1*2"); err != nil {
+		t.Fatalf("SetCellFormula: %v", err)
+	}
+	manual := "manual"
+	if err := f.SetCalcProps(&excelize.CalcPropsOptions{CalcMode: &manual}); err != nil {
+		t.Fatalf("SetCalcProps: %v", err)
+	}
+	if err := f.SaveAs(path); err != nil {
+		t.Fatalf("SaveAs: %v", err)
+	}
+	f.Close()
+
+	// Round-trip via the MCP write path.
+	if _, err := writeSheet(path, "Sheet1", false, "A1:A1", [][]any{{42.0}}); err != nil {
+		t.Fatalf("writeSheet: %v", err)
+	}
+
+	xml := readWorkbookXML(t, path)
+	// XSD boolean accepts "1" or "true"; excelize currently emits "true".
+	if !strings.Contains(xml, `fullCalcOnLoad="1"`) && !strings.Contains(xml, `fullCalcOnLoad="true"`) {
+		t.Errorf("expected fullCalcOnLoad set in workbook.xml, got:\n%s", xml)
+	}
+	// Author's calcMode must be preserved.
+	if !strings.Contains(xml, `calcMode="manual"`) {
+		t.Errorf("expected calcMode=\"manual\" preserved in workbook.xml, got:\n%s", xml)
+	}
+}
