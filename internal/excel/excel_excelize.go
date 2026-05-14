@@ -137,8 +137,20 @@ func (w *ExcelizeWorksheet) GetPivotTables() ([]PivotTable, error) {
 }
 
 func (w *ExcelizeWorksheet) SetValue(cell string, value any) error {
+	// Capture existing style ID before writing, so that we can restore
+	// number formats / fonts / fills / borders that excelize would otherwise
+	// strip when the new value's type differs from the previous cell's type
+	// (e.g. writing a numeric/formula result into a cell that previously held
+	// a string, or vice versa). GetCellStyle returns 0 (default) when the cell
+	// has no explicit style, in which case the restore is a no-op.
+	styleID, styleErr := w.file.GetCellStyle(w.sheetName, cell)
 	if err := w.file.SetCellValue(w.sheetName, cell, value); err != nil {
 		return err
+	}
+	if styleErr == nil && styleID != 0 {
+		if err := w.file.SetCellStyle(w.sheetName, cell, cell, styleID); err != nil {
+			return fmt.Errorf("failed to restore cell style: %w", err)
+		}
 	}
 	if err := w.updateDimension(cell); err != nil {
 		return fmt.Errorf("failed to update dimension: %w", err)
@@ -147,8 +159,17 @@ func (w *ExcelizeWorksheet) SetValue(cell string, value any) error {
 }
 
 func (w *ExcelizeWorksheet) SetFormula(cell string, formula string) error {
+	// Capture and restore style ID across the formula write — see SetValue for
+	// rationale. SetCellFormula is especially prone to stripping numFmt when
+	// the previous cell type differs.
+	styleID, styleErr := w.file.GetCellStyle(w.sheetName, cell)
 	if err := w.file.SetCellFormula(w.sheetName, cell, formula); err != nil {
 		return err
+	}
+	if styleErr == nil && styleID != 0 {
+		if err := w.file.SetCellStyle(w.sheetName, cell, cell, styleID); err != nil {
+			return fmt.Errorf("failed to restore cell style: %w", err)
+		}
 	}
 	if err := w.updateDimension(cell); err != nil {
 		return fmt.Errorf("failed to update dimension: %w", err)
