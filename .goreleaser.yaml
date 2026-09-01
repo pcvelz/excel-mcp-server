@@ -11,6 +11,13 @@ builds:
   - env:
       - CGO_ENABLED=0
     main: ./cmd/excel-mcp-server/main.go
+    # Stamp the version the package actually ships under. GoReleaser's default
+    # is {{.Version}}, which under --snapshot derives from the last git TAG, so
+    # every published build reported the PREVIOUS release's number (v0.15.5 on
+    # npm reported 0.15.4-SNAPSHOT-1065434). npm run build passes the version
+    # from package.json, which is the real source of truth for this package.
+    ldflags:
+      - -s -w -X main.version={{ envOrDefault "PKG_VERSION" "dev" }}
     goos:
       - linux
       - windows
