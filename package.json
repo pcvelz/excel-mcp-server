@@ -12,7 +12,9 @@
   ],
   "scripts": {
     "build": "PKG_VERSION=$npm_package_version goreleaser build --snapshot --clean && tsc",
-    "prepublishOnly": "npm run build",
+    "prepublishOnly": "npm run build && npm run verify-dist",
+    "verify-dist": "node scripts/verify-dist-version.js",
+    "release": "npm run build && npm run verify-dist && npm publish",
     "watch": "tsc --watch",
     "debug": "npx @modelcontextprotocol/inspector dist/launcher.js"
   },
