@@ -28,6 +28,8 @@ func New(version string) *ExcelServer {
 	tools.AddExcelRenameSheetTool(s.server)
 	tools.AddExcelDeleteSheetTool(s.server)
 	tools.AddExcelMoveSheetTool(s.server)
+	tools.AddExcelDeleteRowsTool(s.server)
+	tools.AddExcelInsertRowsTool(s.server)
 	tools.AddExcelFormatRangeTool(s.server)
 	return s
 }

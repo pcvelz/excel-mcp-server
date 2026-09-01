@@ -17,7 +17,8 @@ This fork ([pcvelz/excel-mcp-server](https://github.com/pcvelz/excel-mcp-server)
 - **ISO date auto-conversion** — write ISO date strings (e.g., `"2026-02-03"`) and they're automatically converted to Excel date serial numbers
 - **Sheet management** — `excel_rename_sheet`, `excel_delete_sheet` and `excel_move_sheet` for renaming, removing and reordering tabs
 - **New workbooks from scratch** — `excel_write_to_sheet` with `newSheet: true` creates the file when the path does not exist yet
-- **Merges and column widths in `showStyle` output** — reported alongside the styled cell table
+- **Row management** - `excel_delete_rows` and `excel_insert_rows`, with formulas adjusted the way Excel adjusts them (`#REF!` for references into deleted rows)
+- **Merges, column widths, conditional formatting and data validation in `showStyle` output** — reported alongside the styled cell table
 
 See the [upstream comparison](https://github.com/negokaz/excel-mcp-server/compare/main...pcvelz:excel-mcp-server:main) for full diff.
 
@@ -188,9 +189,6 @@ Rename a sheet. Cell values, formatting, merged cells, column widths and row hei
 - `newName`
     - New name for the sheet. Maximum 31 characters, and it cannot contain `: \ / ? * [ ]`
 
-> [!NOTE]
-> On the excelize backend, formulas are rewritten by this server. Sheets larger than 100,000 cells are skipped and reported as a warning in the tool output rather than being rewritten silently.
-
 ### `excel_delete_sheet`
 
 Delete a sheet. Refuses to delete the last remaining sheet, and refuses to delete a sheet that formulas on other sheets still refer to unless `force` is set. Defined names pointing at the deleted sheet are removed.
@@ -214,6 +212,34 @@ Move a sheet to another position in the tab order. Content and formatting are un
     - Name of the sheet to move
 - `index`
     - Zero-based target position. `0` makes the sheet the first tab, which is the one shown when the workbook is opened.
+
+### `excel_delete_rows`
+
+Delete rows and shift the rows below them up. Formatting of the remaining rows, merged cells, column widths, conditional formatting and data validation are preserved. Formulas are adjusted the way Excel adjusts them: references below the deleted rows move up, ranges spanning them shrink, and references pointing only into the deleted rows become `#REF!`.
+
+**Arguments:**
+- `fileAbsolutePath`
+    - Absolute path to the Excel file
+- `sheetName`
+    - Sheet name in the Excel file
+- `startRow`
+    - First row to delete, one-based and inclusive
+- `endRow`
+    - Last row to delete, one-based and inclusive
+
+### `excel_insert_rows`
+
+Insert empty rows and shift the rows at and below the insertion point down. Merged cells, conditional formatting, data validation and formulas move with the rows.
+
+**Arguments:**
+- `fileAbsolutePath`
+    - Absolute path to the Excel file
+- `sheetName`
+    - Sheet name in the Excel file
+- `beforeRow`
+    - One-based row number to insert before
+- `count` (optional, default: `1`)
+    - Number of rows to insert
 
 ### `excel_format_range`
 

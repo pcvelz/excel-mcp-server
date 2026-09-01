@@ -375,6 +375,53 @@ func TestRenameSheetUpdatesFormulas(t *testing.T) {
 	}
 }
 
+// TestRenameSheetKeepsSharedFormulaGroups guards against writing formula text
+// into the members of a shared formula group: only the master carries text,
+// and Excel would otherwise read the unshifted master formula in every member.
+func TestRenameSheetKeepsSharedFormulaGroups(t *testing.T) {
+	ok := expectOK(t)
+	path := filepath.Join(t.TempDir(), "shared.xlsx")
+	file := excelize.NewFile()
+	if err := file.SetSheetName(file.GetSheetName(0), "Data"); err != nil {
+		t.Fatal(err)
+	}
+	for row := 1; row <= 3; row++ {
+		if err := file.SetCellInt("Data", fmt.Sprintf("A%d", row), int64(row)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := file.NewSheet("Report"); err != nil {
+		t.Fatal(err)
+	}
+	formulaType, ref := excelize.STCellFormulaTypeShared, "C1:C3"
+	if err := file.SetCellFormula("Report", "C1", "Data!A1*2", excelize.FormulaOpts{Type: &formulaType, Ref: &ref}); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.SaveAs(path); err != nil {
+		t.Fatal(err)
+	}
+	file.Close()
+
+	ok(renameSheet(path, "Data", "Bron"))
+
+	reopened, err := excelize.OpenFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	raw, found := reopened.Pkg.Load("xl/worksheets/sheet2.xml")
+	if !found {
+		t.Fatal("sheet2.xml missing from the package")
+	}
+	xml := string(raw.([]byte))
+	if !strings.Contains(xml, `<f t="shared" ref="C1:C3" si="0">Bron!A1*2</f>`) {
+		t.Errorf("master formula was not rewritten in place:\n%s", xml)
+	}
+	if strings.Count(xml, "Bron!A1*2") != 1 || strings.Contains(xml, "Data!") {
+		t.Errorf("group members must inherit the master rather than carry their own text:\n%s", xml)
+	}
+}
+
 func TestRenameSheetRejectsDuplicateAndInvalidNames(t *testing.T) {
 	fail := expectError(t)
 	path := filepath.Join(t.TempDir(), "excel-mcp-tabtest.xlsx")

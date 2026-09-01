@@ -1,9 +1,15 @@
 package excel
 
 import (
+	"bytes"
+	"encoding/xml"
+	"errors"
 	"fmt"
+	"io"
 	"os"
+	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/xuri/excelize/v2"
@@ -62,11 +68,6 @@ func (e *ExcelizeExcel) CopySheet(srcSheetName string, destSheetName string) err
 	return nil
 }
 
-// maxFormulaRewriteCells bounds the cell-by-cell formula scan that a rename
-// performs. Excelize looks a formula up by walking the sheet's rows, so the
-// scan is quadratic; past this budget we skip it and warn instead of hanging.
-const maxFormulaRewriteCells = 100000
-
 func (e *ExcelizeExcel) SheetNames() ([]string, error) {
 	return e.file.GetSheetList(), nil
 }
@@ -85,80 +86,258 @@ func (e *ExcelizeExcel) RenameSheet(oldSheetName string, newSheetName string) ([
 		return nil, fmt.Errorf("a sheet named [%s] already exists", newSheetName)
 	}
 
-	// Collect the formulas to rewrite before renaming, so that a workbook too
-	// large to scan is reported rather than half-migrated.
-	rewrites, warnings, err := e.collectFormulaRewrites(oldSheetName, newSheetName)
+	// Formulas go first: excelize does not validate references, so pointing
+	// them at a name that does not exist yet is fine, and the writes then
+	// never have to care which name the sheet currently carries.
+	err = e.rewriteFormulas(func(sheet string, cell string, formula string) (string, bool) {
+		return ReplaceSheetNameInFormula(formula, oldSheetName, newSheetName)
+	})
 	if err != nil {
 		return nil, err
 	}
-
 	// SetSheetName preserves all cell content, styles, merges, column widths
 	// and row heights; it only edits the sheet's entry in workbook.xml and the
 	// defined names that point at it.
-	if err := e.file.SetSheetName(oldSheetName, newSheetName); err != nil {
-		return nil, err
+	return nil, e.file.SetSheetName(oldSheetName, newSheetName)
+}
+
+// sheetCell mirrors the parts of a worksheet <c> element that matter for
+// formula rewriting and used-range detection.
+type sheetCell struct {
+	Ref     string    `xml:"r,attr"`
+	Value   string    `xml:"v"`
+	Inline  *struct{} `xml:"is"`
+	Formula *struct {
+		Type string `xml:"t,attr"`
+		Si   *int   `xml:"si,attr"`
+		Text string `xml:",chardata"`
+	} `xml:"f"`
+}
+
+func (c sheetCell) hasContent() bool {
+	return c.Value != "" || c.Inline != nil || c.Formula != nil
+}
+
+// errNotWorksheet marks a sheet that holds no cells, such as a chart sheet or
+// a dialog sheet. GetSheetList returns those alongside real worksheets.
+var errNotWorksheet = errors.New("sheet is not a worksheet")
+
+// eachSheetCell visits every cell of the sheet as excelize currently holds it
+// in memory, in row order.
+//
+// The reason for reading the worksheet part rather than using the accessors is
+// that no exported excelize API reports the shared formula attributes t, si
+// and ref. GetCellFormula resolves a group member to the master's formula
+// shifted to the member's own position and drops every trace of the group;
+// GetCellType reports a member as CellTypeUnset, and Rows only yields values.
+// The distinction matters because writing into a member leaves the group in
+// place and Excel keeps reading the master, so the write is silently lost. It
+// is not about speed: GetCellFormula binary searches the rows and is cheap.
+//
+// Cells are handed over one at a time instead of collected, because a
+// worksheet can hold hundreds of thousands of them while both callers only
+// keep a handful.
+func (e *ExcelizeExcel) eachSheetCell(sheet string, visit func(sheetCell) error) error {
+	path, err := e.sheetXMLPath(sheet)
+	if err != nil {
+		return err
 	}
-	for _, rewrite := range rewrites {
-		if err := e.file.SetCellFormula(rewrite.sheet, rewrite.cell, rewrite.formula); err != nil {
-			return nil, fmt.Errorf("failed to update formula in %s!%s: %w", rewrite.sheet, rewrite.cell, err)
+	// Any accessor makes excelize parse the sheet into memory.
+	if _, err := e.file.GetSheetDimension(sheet); err != nil {
+		return err
+	}
+	worksheet, ok := e.file.Sheet.Load(path)
+	if !ok {
+		return fmt.Errorf("worksheet part %s of sheet [%s] is not loaded", path, sheet)
+	}
+	// The parsed worksheet is an unexported excelize type, so serialising it
+	// is the only way to look inside.
+	raw, err := xml.Marshal(worksheet)
+	if err != nil {
+		return err
+	}
+	decoder := xml.NewDecoder(bytes.NewReader(raw))
+	inSheetData := false
+	for {
+		token, err := decoder.Token()
+		if errors.Is(err, io.EOF) {
+			return nil
 		}
-	}
-	return warnings, nil
-}
-
-type formulaRewrite struct {
-	sheet   string
-	cell    string
-	formula string
-}
-
-// collectFormulaRewrites finds every formula in the workbook that references
-// oldSheetName and returns the rewritten version pointing at newSheetName.
-// The sheet names in the returned rewrites are the ones valid *after* the
-// rename, so the caller can apply them directly.
-func (e *ExcelizeExcel) collectFormulaRewrites(oldSheetName string, newSheetName string) ([]formulaRewrite, []string, error) {
-	var rewrites []formulaRewrite
-	var warnings []string
-
-	for _, sheet := range e.file.GetSheetList() {
-		rows, err := e.file.GetRows(sheet)
 		if err != nil {
-			return nil, nil, err
+			return err
 		}
-		cells := 0
-		for _, row := range rows {
-			cells += len(row)
-		}
-		if cells > maxFormulaRewriteCells {
-			warnings = append(warnings, fmt.Sprintf(
-				"sheet [%s] has %d cells, which exceeds the %d cell scan budget: formulas on it that reference [%s] were NOT updated and may now be broken",
-				sheet, cells, maxFormulaRewriteCells, oldSheetName))
-			continue
-		}
-		// The scanned sheet may itself be the one being renamed.
-		targetSheet := sheet
-		if sheet == oldSheetName {
-			targetSheet = newSheetName
-		}
-		for rowIndex, row := range rows {
-			for colIndex := range row {
-				cell, err := excelize.CoordinatesToCellName(colIndex+1, rowIndex+1)
-				if err != nil {
-					return nil, nil, err
+		switch element := token.(type) {
+		case xml.StartElement:
+			switch {
+			case element.Name.Local == "sheetData":
+				inSheetData = true
+			case inSheetData && element.Name.Local == "c":
+				var cell sheetCell
+				if err := decoder.DecodeElement(&cell, &element); err != nil {
+					return err
 				}
-				formula, err := e.file.GetCellFormula(sheet, cell)
-				if err != nil || formula == "" {
-					continue
+				if err := visit(cell); err != nil {
+					return err
 				}
-				updated, changed := ReplaceSheetNameInFormula(formula, oldSheetName, newSheetName)
-				if !changed {
-					continue
-				}
-				rewrites = append(rewrites, formulaRewrite{sheet: targetSheet, cell: cell, formula: updated})
+			}
+		case xml.EndElement:
+			// Everything after the cells is of no interest, and a worksheet
+			// carries a lot of it.
+			if element.Name.Local == "sheetData" {
+				return nil
 			}
 		}
 	}
-	return rewrites, warnings, nil
+}
+
+// sheetXMLPath resolves a sheet name to its worksheet part in the package by
+// way of workbook.xml and the workbook relationships, as excelize does
+// privately. Sheets that are not worksheets report errNotWorksheet.
+func (e *ExcelizeExcel) sheetXMLPath(sheet string) (string, error) {
+	relationshipID := ""
+	for _, entry := range e.file.WorkBook.Sheets.Sheet {
+		if strings.EqualFold(entry.Name, sheet) {
+			relationshipID = entry.ID
+		}
+	}
+	relationships, ok := e.file.Relationships.Load("xl/_rels/workbook.xml.rels")
+	if relationshipID == "" || !ok {
+		return "", fmt.Errorf("cannot locate the worksheet part of sheet [%s]", sheet)
+	}
+	raw, err := xml.Marshal(relationships)
+	if err != nil {
+		return "", err
+	}
+	var parsed struct {
+		Relationships []struct {
+			ID     string `xml:"Id,attr"`
+			Type   string `xml:"Type,attr"`
+			Target string `xml:"Target,attr"`
+		} `xml:"Relationship"`
+	}
+	if err := xml.Unmarshal(raw, &parsed); err != nil {
+		return "", err
+	}
+	for _, relationship := range parsed.Relationships {
+		if relationship.ID != relationshipID {
+			continue
+		}
+		// The relationship type is what separates a worksheet from a chart or
+		// dialog sheet; those have no cells to read.
+		if !strings.HasSuffix(relationship.Type, "/worksheet") {
+			return "", fmt.Errorf("%w: [%s]", errNotWorksheet, sheet)
+		}
+		// Targets are relative to xl/ unless they start at the package root.
+		if strings.HasPrefix(relationship.Target, "/") {
+			return strings.TrimPrefix(relationship.Target, "/"), nil
+		}
+		return path.Join("xl", relationship.Target), nil
+	}
+	return "", fmt.Errorf("cannot locate the worksheet part of sheet [%s]", sheet)
+}
+
+// rewriteFormulas offers every formula in the workbook to rewrite and stores
+// the ones it changes, an empty result meaning the formula is removed. A
+// rewrite that never reports a change makes this a read-only scan.
+//
+// Shared formula groups are expanded to their members, since excelize stores
+// only the master's text and the rest inherit it by offset. When every member
+// still follows the rewritten master the group survives with only the master
+// changed; otherwise it is written back as individual formulas. Writing into
+// a member directly is never right: the text would sit next to the inherited
+// formula, and Excel then reads the master's formula in every member,
+// unshifted.
+func (e *ExcelizeExcel) rewriteFormulas(rewrite func(sheet string, cell string, formula string) (string, bool)) error {
+	for _, sheet := range e.file.GetSheetList() {
+		apply := func(cell string, formula string) (string, bool) {
+			updated, changed := rewrite(sheet, cell, formula)
+			if !changed {
+				return formula, false
+			}
+			return updated, updated != formula
+		}
+		masters := map[int]sheetCell{}
+		groups := map[int][]string{}
+		var groupOrder []int
+		// The cells are read from a snapshot of the worksheet, so writing back
+		// while visiting them is safe.
+		err := e.eachSheetCell(sheet, func(cell sheetCell) error {
+			if cell.Formula == nil || cell.Formula.Type == excelize.STCellFormulaTypeDataTable {
+				return nil
+			}
+			if cell.Formula.Type == excelize.STCellFormulaTypeShared && cell.Formula.Si != nil {
+				si := *cell.Formula.Si
+				if cell.Formula.Text != "" {
+					masters[si] = cell
+				}
+				if _, seen := groups[si]; !seen {
+					groupOrder = append(groupOrder, si)
+				}
+				groups[si] = append(groups[si], cell.Ref)
+				return nil
+			}
+			if updated, changed := apply(cell.Ref, cell.Formula.Text); changed {
+				if err := e.file.SetCellFormula(sheet, cell.Ref, updated); err != nil {
+					return fmt.Errorf("failed to update formula in %s!%s: %w", sheet, cell.Ref, err)
+				}
+			}
+			return nil
+		})
+		if errors.Is(err, errNotWorksheet) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+
+		for _, si := range groupOrder {
+			master, ok := masters[si]
+			if !ok {
+				// A group without a master has no formula text anywhere.
+				continue
+			}
+			masterCol, masterRow, err := excelize.CellNameToCoordinates(master.Ref)
+			if err != nil {
+				return err
+			}
+			masterUpdated, _ := apply(master.Ref, master.Formula.Text)
+			members := groups[si]
+			formulas := make([]string, len(members))
+			anyChanged, uniform := false, true
+			for i, member := range members {
+				col, row, err := excelize.CellNameToCoordinates(member)
+				if err != nil {
+					return err
+				}
+				offsetCol, offsetRow := col-masterCol, row-masterRow
+				updated, changed := apply(member, ShiftFormulaReferences(master.Formula.Text, offsetCol, offsetRow))
+				formulas[i] = updated
+				anyChanged = anyChanged || changed
+				uniform = uniform && updated == ShiftFormulaReferences(masterUpdated, offsetCol, offsetRow)
+			}
+			if !anyChanged {
+				continue
+			}
+			if uniform {
+				// SetCellFormula on the master keeps the group's attributes.
+				if err := e.file.SetCellFormula(sheet, master.Ref, masterUpdated); err != nil {
+					return fmt.Errorf("failed to update formula in %s!%s: %w", sheet, master.Ref, err)
+				}
+				continue
+			}
+			// Clearing the master drops the inherited formula of every member,
+			// after which each gets its own.
+			if err := e.file.SetCellFormula(sheet, master.Ref, ""); err != nil {
+				return err
+			}
+			for i, member := range members {
+				if err := e.file.SetCellFormula(sheet, member, formulas[i]); err != nil {
+					return fmt.Errorf("failed to update formula in %s!%s: %w", sheet, member, err)
+				}
+			}
+		}
+	}
+	return nil
 }
 
 func (e *ExcelizeExcel) DeleteSheet(sheetName string, force bool) ([]string, error) {
@@ -176,36 +355,14 @@ func (e *ExcelizeExcel) DeleteSheet(sheetName string, force bool) ([]string, err
 	// Formulas on the surviving sheets would turn into #REF! errors. Excelize
 	// does not detect this, so refuse rather than hand back a broken workbook.
 	var referencing []string
-	for _, sheet := range sheetList {
-		if sheet == sheetName {
-			continue
+	err = e.rewriteFormulas(func(sheet string, cell string, formula string) (string, bool) {
+		if sheet != sheetName && FormulaReferencesSheet(formula, sheetName) {
+			referencing = append(referencing, sheet+"!"+cell)
 		}
-		rows, err := e.file.GetRows(sheet)
-		if err != nil {
-			return nil, err
-		}
-		cells := 0
-		for _, row := range rows {
-			cells += len(row)
-		}
-		if cells > maxFormulaRewriteCells {
-			continue
-		}
-		for rowIndex, row := range rows {
-			for colIndex := range row {
-				cell, err := excelize.CoordinatesToCellName(colIndex+1, rowIndex+1)
-				if err != nil {
-					return nil, err
-				}
-				formula, err := e.file.GetCellFormula(sheet, cell)
-				if err != nil || formula == "" {
-					continue
-				}
-				if FormulaReferencesSheet(formula, sheetName) {
-					referencing = append(referencing, fmt.Sprintf("%s!%s", sheet, cell))
-				}
-			}
-		}
+		return "", false
+	})
+	if err != nil {
+		return nil, err
 	}
 	if len(referencing) > 0 && !force {
 		shown := referencing
@@ -539,6 +696,129 @@ func (w *ExcelizeWorksheet) GetColumnWidths(startCol int, endCol int) (map[strin
 		widths[name] = width
 	}
 	return widths, nil
+}
+
+func (w *ExcelizeWorksheet) DeleteRows(startRow int, endRow int) error {
+	if startRow < 1 {
+		return fmt.Errorf("startRow must be 1 or greater, got %d", startRow)
+	}
+	if endRow < startRow {
+		return fmt.Errorf("endRow (%d) must not be smaller than startRow (%d)", endRow, startRow)
+	}
+	// Excelize shifts a reference to a deleted row onto whichever row lands in
+	// its place, which is silently wrong; Excel breaks it to #REF!. Do that
+	// first, while the rows still exist. Formulas inside the deleted rows are
+	// dropped here rather than left to RemoveRow, because excelize wipes every
+	// member of a shared group when the master cell goes.
+	workbook := &ExcelizeExcel{file: w.file}
+	err := workbook.rewriteFormulas(func(sheet string, cell string, formula string) (string, bool) {
+		if strings.EqualFold(sheet, w.sheetName) {
+			if _, row, err := excelize.CellNameToCoordinates(cell); err == nil && row >= startRow && row <= endRow {
+				return "", true
+			}
+		}
+		return BreakReferencesToRows(formula, sheet, w.sheetName, startRow, endRow)
+	})
+	if err != nil {
+		return err
+	}
+	// Excelize removes one row at a time and adjusts merges, conditional
+	// formats, data validations, defined names and formulas on each call, so
+	// the row to remove stays startRow as the rows below shift up.
+	for i := 0; i < endRow-startRow+1; i++ {
+		if err := w.file.RemoveRow(w.sheetName, startRow); err != nil {
+			return err
+		}
+	}
+	return w.recalculateDimension()
+}
+
+func (w *ExcelizeWorksheet) InsertRows(beforeRow int, count int) error {
+	if beforeRow < 1 {
+		return fmt.Errorf("beforeRow must be 1 or greater, got %d", beforeRow)
+	}
+	if count < 1 {
+		return fmt.Errorf("count must be 1 or greater, got %d", count)
+	}
+	if err := w.file.InsertRows(w.sheetName, beforeRow, count); err != nil {
+		return err
+	}
+	return w.recalculateDimension()
+}
+
+// recalculateDimension recomputes the used range from the sheet's contents.
+// updateDimension only ever grows the range, but deleting rows has to shrink
+// it too, otherwise paging keeps walking over rows that no longer exist.
+func (w *ExcelizeWorksheet) recalculateDimension() error {
+	minCol, minRow, maxCol, maxRow := 0, 0, 0, 0
+	err := (&ExcelizeExcel{file: w.file}).eachSheetCell(w.sheetName, func(cell sheetCell) error {
+		if !cell.hasContent() {
+			return nil
+		}
+		column, row, err := excelize.CellNameToCoordinates(cell.Ref)
+		if err != nil {
+			return err
+		}
+		if minCol == 0 || column < minCol {
+			minCol = column
+		}
+		if column > maxCol {
+			maxCol = column
+		}
+		if minRow == 0 || row < minRow {
+			minRow = row
+		}
+		if row > maxRow {
+			maxRow = row
+		}
+		return nil
+	})
+	if errors.Is(err, errNotWorksheet) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if maxRow == 0 {
+		return w.file.SetSheetDimension(w.sheetName, "A1")
+	}
+	start, err := excelize.CoordinatesToCellName(minCol, minRow)
+	if err != nil {
+		return err
+	}
+	end, err := excelize.CoordinatesToCellName(maxCol, maxRow)
+	if err != nil {
+		return err
+	}
+	return w.file.SetSheetDimension(w.sheetName, start+":"+end)
+}
+
+func (w *ExcelizeWorksheet) GetConditionalFormatRanges() ([]string, error) {
+	formats, err := w.file.GetConditionalFormats(w.sheetName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get conditional formats: %w", err)
+	}
+	ranges := make([]string, 0, len(formats))
+	for reference := range formats {
+		ranges = append(ranges, reference)
+	}
+	sort.Strings(ranges)
+	return ranges, nil
+}
+
+func (w *ExcelizeWorksheet) GetDataValidationRanges() ([]string, error) {
+	validations, err := w.file.GetDataValidations(w.sheetName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get data validations: %w", err)
+	}
+	ranges := make([]string, 0, len(validations))
+	for _, validation := range validations {
+		if validation != nil && validation.Sqref != "" {
+			ranges = append(ranges, validation.Sqref)
+		}
+	}
+	sort.Strings(ranges)
+	return ranges, nil
 }
 
 func convertCellStyleToExcelizeStyle(style *CellStyle) *excelize.Style {

@@ -169,6 +169,24 @@ func readSheet(fileAbsolutePath string, sheetName string, valueRange string, sho
 		if len(formatted) > 0 {
 			result += fmt.Sprintf("<li>column widths: %s</li>\n", strings.Join(formatted, ", "))
 		}
+		// Conditional formatting and data validation are invisible in the cell
+		// table, so anything editing this sheet would destroy them unknowingly.
+		conditionalFormats, err := worksheet.GetConditionalFormatRanges()
+		if err != nil {
+			return nil, err
+		}
+		if len(conditionalFormats) > 0 {
+			result += fmt.Sprintf("<li>conditional formatting (%d rule range(s)): %s</li>\n",
+				len(conditionalFormats), html.EscapeString(strings.Join(conditionalFormats, ", ")))
+		}
+		validations, err := worksheet.GetDataValidationRanges()
+		if err != nil {
+			return nil, err
+		}
+		if len(validations) > 0 {
+			result += fmt.Sprintf("<li>data validation (%d rule range(s)): %s</li>\n",
+				len(validations), html.EscapeString(strings.Join(validations, ", ")))
+		}
 	}
 	result += "</ul>\n"
 	result += "<h2>Notice</h2>\n"

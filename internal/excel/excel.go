@@ -69,6 +69,17 @@ type Worksheet interface {
 	// GetColumnWidths returns the explicitly set column widths of this
 	// worksheet, keyed by column name (e.g. "B").
 	GetColumnWidths(startCol, endCol int) (map[string]float64, error)
+	// DeleteRows removes rows startRow..endRow (one-based, inclusive) and
+	// shifts everything below them up.
+	DeleteRows(startRow, endRow int) error
+	// InsertRows inserts count empty rows before beforeRow (one-based).
+	InsertRows(beforeRow, count int) error
+	// GetConditionalFormatRanges returns the ranges that carry conditional
+	// formatting rules on this worksheet.
+	GetConditionalFormatRanges() ([]string, error)
+	// GetDataValidationRanges returns the ranges that carry data validation
+	// rules on this worksheet.
+	GetDataValidationRanges() ([]string, error)
 }
 
 type Table struct {

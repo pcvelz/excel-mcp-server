@@ -564,6 +564,108 @@ func (o *OleWorksheet) GetColumnWidths(startCol int, endCol int) (map[string]flo
 	return widths, nil
 }
 
+// DeleteRows removes rows and lets Excel shift everything below them up. Excel
+// adjusts formulas, merges, conditional formats and data validation itself.
+func (o *OleWorksheet) DeleteRows(startRow int, endRow int) error {
+	if startRow < 1 {
+		return fmt.Errorf("startRow must be 1 or greater, got %d", startRow)
+	}
+	if endRow < startRow {
+		return fmt.Errorf("endRow (%d) must not be smaller than startRow (%d)", endRow, startRow)
+	}
+	rows, err := oleutil.GetProperty(o.worksheet, "Rows", fmt.Sprintf("%d:%d", startRow, endRow))
+	if err != nil {
+		return fmt.Errorf("failed to get rows %d:%d: %w", startRow, endRow, err)
+	}
+	target := rows.ToIDispatch()
+	defer target.Release()
+
+	if _, err := oleutil.CallMethod(target, "Delete"); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (o *OleWorksheet) InsertRows(beforeRow int, count int) error {
+	if beforeRow < 1 {
+		return fmt.Errorf("beforeRow must be 1 or greater, got %d", beforeRow)
+	}
+	if count < 1 {
+		return fmt.Errorf("count must be 1 or greater, got %d", count)
+	}
+	rows, err := oleutil.GetProperty(o.worksheet, "Rows", fmt.Sprintf("%d:%d", beforeRow, beforeRow+count-1))
+	if err != nil {
+		return fmt.Errorf("failed to get rows at %d: %w", beforeRow, err)
+	}
+	target := rows.ToIDispatch()
+	defer target.Release()
+
+	if _, err := oleutil.CallMethod(target, "Insert"); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (o *OleWorksheet) GetConditionalFormatRanges() ([]string, error) {
+	usedRange := oleutil.MustGetProperty(o.worksheet, "UsedRange").ToIDispatch()
+	defer usedRange.Release()
+
+	conditions, err := oleutil.GetProperty(usedRange, "FormatConditions")
+	if err != nil {
+		return nil, nil
+	}
+	formatConditions := conditions.ToIDispatch()
+	defer formatConditions.Release()
+
+	count := int(oleutil.MustGetProperty(formatConditions, "Count").Val)
+	seen := make(map[string]struct{})
+	var ranges []string
+	for i := 1; i <= count; i++ {
+		conditionVariant, err := oleutil.GetProperty(formatConditions, "Item", i)
+		if err != nil {
+			continue
+		}
+		condition := conditionVariant.ToIDispatch()
+		appliesTo, err := oleutil.GetProperty(condition, "AppliesTo")
+		if err != nil {
+			condition.Release()
+			continue
+		}
+		area := appliesTo.ToIDispatch()
+		address := oleutil.MustGetProperty(area, "Address", false, false).ToString()
+		area.Release()
+		condition.Release()
+		if _, ok := seen[address]; ok {
+			continue
+		}
+		seen[address] = struct{}{}
+		ranges = append(ranges, address)
+	}
+	return ranges, nil
+}
+
+// GetDataValidationRanges reports which cells in the used range carry data
+// validation. Excel exposes validation per cell rather than as a list, and
+// raises when a cell has none, so the ranges are collected cell by cell.
+func (o *OleWorksheet) GetDataValidationRanges() ([]string, error) {
+	usedRange := oleutil.MustGetProperty(o.worksheet, "UsedRange").ToIDispatch()
+	defer usedRange.Release()
+
+	specialCells, err := oleutil.CallMethod(usedRange, "SpecialCells", -4174)
+	if err != nil {
+		// -4174 is xlCellTypeAllValidation; Excel raises when there is none.
+		return nil, nil
+	}
+	cells := specialCells.ToIDispatch()
+	defer cells.Release()
+
+	address := oleutil.MustGetProperty(cells, "Address", false, false).ToString()
+	if address == "" {
+		return nil, nil
+	}
+	return strings.Split(address, ","), nil
+}
+
 func (o *OleWorksheet) GetPagingStrategy(pageSize int) (PagingStrategy, error) {
 	return NewOlePagingStrategy(1000, o)
 }
