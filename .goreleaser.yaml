@@ -16,8 +16,10 @@ builds:
     # every published build reported the PREVIOUS release's number (v0.15.5 on
     # npm reported 0.15.4-SNAPSHOT-1065434). npm run build passes the version
     # from package.json, which is the real source of truth for this package.
+    # Without it (goreleaser release from a tag in CI) fall back to the tag
+    # rather than to "dev", so no goreleaser build can ship unversioned.
     ldflags:
-      - -s -w -X main.version={{ envOrDefault "PKG_VERSION" "dev" }}
+      - -s -w -X main.version={{ envOrDefault "PKG_VERSION" .Version }}
     goos:
       - linux
       - windows
