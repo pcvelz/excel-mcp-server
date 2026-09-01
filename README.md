@@ -179,7 +179,7 @@ Copy existing sheet to a new sheet
 
 ### `excel_rename_sheet`
 
-Rename a sheet. Cell values, formatting, merged cells, column widths and row heights are preserved, and formulas referring to the sheet are updated to point at the new name.
+Rename a sheet. Cell values, formatting, merged cells, column widths and row heights are preserved, and everything that names the sheet follows the rename: formulas (including 3D references such as `Sheet1:Sheet3!A1`), defined names, data validation lists, chart series, table column formulas and pivot table sources. Conditional formatting rules that refer to the sheet are reported as a warning instead of rewritten.
 
 **Arguments:**
 - `fileAbsolutePath`
@@ -191,7 +191,7 @@ Rename a sheet. Cell values, formatting, merged cells, column widths and row hei
 
 ### `excel_delete_sheet`
 
-Delete a sheet. Refuses to delete the last remaining sheet, and refuses to delete a sheet that formulas on other sheets still refer to unless `force` is set. Defined names pointing at the deleted sheet are removed.
+Delete a sheet. Refuses to delete the last remaining sheet, and refuses to delete a sheet that formulas, data validations, charts, tables or pivot tables elsewhere in the workbook still refer to unless `force` is set. Defined names pointing at the deleted sheet are removed.
 
 **Arguments:**
 - `fileAbsolutePath`
@@ -199,7 +199,7 @@ Delete a sheet. Refuses to delete the last remaining sheet, and refuses to delet
 - `sheetName`
     - Name of the sheet to delete
 - `force` (optional, default: `false`)
-    - Delete even when formulas on other sheets refer to this sheet, leaving those formulas broken. The affected cells are listed in the tool output.
+    - Delete even when formulas, data validations, charts, tables or pivot tables elsewhere refer to this sheet, leaving those references broken. The affected places are listed in the tool output.
 
 ### `excel_move_sheet`
 

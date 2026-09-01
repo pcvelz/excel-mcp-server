@@ -692,3 +692,146 @@ func TestWriteTabTestFixture(t *testing.T) {
 	buildTabTestWorkbook(t, path)
 	t.Logf("wrote fixture to %s", path)
 }
+
+// buildReferencingWorkbook writes a workbook in which everything Excel adjusts
+// on a sheet rename names the "Data" sheet from "Report": a formula, a data
+// validation list, a defined name holding a formula, a chart, a pivot table,
+// a table column formula and a conditional formatting rule.
+func buildReferencingWorkbook(t *testing.T, path string) {
+	t.Helper()
+	file := excelize.NewFile()
+	if err := file.SetSheetName(file.GetSheetName(0), "Data"); err != nil {
+		t.Fatal(err)
+	}
+	for row := 1; row <= 5; row++ {
+		if err := file.SetCellInt("Data", fmt.Sprintf("A%d", row), int64(row)); err != nil {
+			t.Fatal(err)
+		}
+		if err := file.SetCellInt("Data", fmt.Sprintf("B%d", row), int64(row*2)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := file.NewSheet("Report"); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.SetCellFormula("Report", "A1", "=SUM(Data:Report!B1)"); err != nil {
+		t.Fatal(err)
+	}
+	validation := excelize.NewDataValidation(true)
+	validation.Sqref = "B1:B3"
+	validation.SetSqrefDropList("Data!$A$1:$A$5")
+	if err := file.AddDataValidation("Report", validation); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.SetDefinedName(&excelize.DefinedName{Name: "Totaal", RefersTo: "SUM(Data!$B$1:$B$5)"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.AddChart("Report", "D1", &excelize.Chart{Type: excelize.Col, Series: []excelize.ChartSeries{
+		{Name: "Data!$B$1", Categories: "Data!$A$1:$A$5", Values: "Data!$B$1:$B$5"},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.AddPivotTable(&excelize.PivotTableOptions{
+		DataRange:       "Data!A1:B5",
+		PivotTableRange: "Report!H1:J10",
+		Rows:            []excelize.PivotTableField{{Data: "1"}},
+		Data:            []excelize.PivotTableField{{Data: "2", Subtotal: "Sum"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Excelize cannot write a calculated column, so plant the part Excel
+	// would have written. Nothing links to it, which is fine for a test.
+	file.Pkg.Store("xl/tables/table9.xml", []byte(`<table><tableColumns><tableColumn id="1" name="x"><calculatedColumnFormula>Data!A1*2</calculatedColumnFormula></tableColumn></tableColumns></table>`))
+	styleID, err := file.NewStyle(&excelize.Style{Font: &excelize.Font{Color: "FF0000"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := file.SetConditionalFormat("Report", "A1:A5", []excelize.ConditionalFormatOptions{
+		{Type: "formula", Criteria: "=Data!$A$1>2", Format: &styleID},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.SaveAs(path); err != nil {
+		t.Fatal(err)
+	}
+	file.Close()
+}
+
+func TestRenameSheetUpdatesEverythingThatNamesIt(t *testing.T) {
+	ok := expectOK(t)
+	path := filepath.Join(t.TempDir(), "referencing.xlsx")
+	buildReferencingWorkbook(t, path)
+
+	// The sheet is addressed in another casing than it is stored in: a
+	// rename that silently leaves the sheet alone would strand every
+	// rewritten reference.
+	output := ok(renameSheet(path, "DATA", "P&L 2025"))
+	if !strings.Contains(output, "conditional formatting on Report!A1:A5") {
+		t.Errorf("expected a warning about the conditional format that was left alone, got: %s", output)
+	}
+
+	reopened, err := excelize.OpenFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	if got, want := reopened.GetSheetList(), []string{"P&L 2025", "Report"}; !equalStrings(got, want) {
+		t.Fatalf("sheet list = %v, want %v", got, want)
+	}
+	if got, _ := reopened.GetCellFormula("Report", "A1"); got != "=SUM('P&L 2025:Report'!B1)" {
+		t.Errorf("3D formula = %q, want =SUM('P&L 2025:Report'!B1)", got)
+	}
+	validations, err := reopened.GetDataValidations("Report")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(validations) != 1 || validations[0].Formula1 != "'P&L 2025'!$A$1:$A$5" || validations[0].Sqref != "B1:B3" {
+		t.Errorf("data validation = %+v, want the list to follow the rename", validations)
+	}
+	for _, definedName := range reopened.GetDefinedName() {
+		if definedName.Name == "Totaal" && definedName.RefersTo != "SUM('P&L 2025'!$B$1:$B$5)" {
+			t.Errorf("defined name refers to %q, want SUM('P&L 2025'!$B$1:$B$5)", definedName.RefersTo)
+		}
+	}
+	parts := map[string]string{
+		"xl/charts/chart1.xml":                    "<f>'P&amp;L 2025'!$B$1:$B$5</f>",
+		"xl/pivotCache/pivotCacheDefinition1.xml": `sheet="P&amp;L 2025"`,
+		"xl/tables/table9.xml":                    "<calculatedColumnFormula>'P&amp;L 2025'!A1*2</calculatedColumnFormula>",
+	}
+	for part, want := range parts {
+		raw, found := reopened.Pkg.Load(part)
+		if !found {
+			t.Errorf("%s missing from the package", part)
+			continue
+		}
+		if content := string(raw.([]byte)); !strings.Contains(content, want) || strings.Contains(content, "Data!") {
+			t.Errorf("%s does not follow the rename, want %s in:\n%s", part, want, content)
+		}
+	}
+	// The one thing that is not rewritten must at least still be there.
+	formats, err := reopened.GetConditionalFormats("Report")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rules := formats["A1:A5"]; len(rules) != 1 || rules[0].Criteria != "=Data!$A$1>2" {
+		t.Errorf("conditional format = %+v, want the original rule untouched", rules)
+	}
+}
+
+func TestDeleteSheetRefusesWhenChartsOrValidationsReferenceIt(t *testing.T) {
+	ok := expectOK(t)
+	fail := expectError(t)
+	path := filepath.Join(t.TempDir(), "referencing.xlsx")
+	buildReferencingWorkbook(t, path)
+
+	message := fail(deleteSheet(path, "Data", false))
+	for _, want := range []string{"Report!A1", "data validation on Report!B1:B3", "chart chart1.xml", "pivot table source pivotCacheDefinition1.xml", "table table9.xml"} {
+		if !strings.Contains(message, want) {
+			t.Errorf("expected %q in the refusal, got: %s", want, message)
+		}
+	}
+	output := ok(deleteSheet(path, "Data", true))
+	if !strings.Contains(output, "removed defined name [Totaal]") {
+		t.Errorf("expected the defined name holding a formula to be removed, got: %s", output)
+	}
+}

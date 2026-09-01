@@ -27,7 +27,7 @@ var excelRenameSheetArgumentsSchema = z.Struct(z.Shape{
 
 func AddExcelRenameSheetTool(server *server.MCPServer) {
 	server.AddTool(mcp.NewTool("excel_rename_sheet",
-		mcp.WithDescription("Rename a sheet in the Excel file. Cell values, formatting, merged cells, column widths and row heights are preserved, and formulas referring to the sheet are updated."),
+		mcp.WithDescription("Rename a sheet in the Excel file. Cell values, formatting, merged cells, column widths and row heights are preserved. Formulas, defined names, data validation lists, chart series, table column formulas and pivot table sources referring to the sheet are updated; conditional formatting rules referring to it are reported as a warning."),
 		mcp.WithString("fileAbsolutePath",
 			mcp.Required(),
 			mcp.Description("Absolute path to the Excel file"),

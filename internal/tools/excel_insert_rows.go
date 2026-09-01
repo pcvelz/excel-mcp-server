@@ -79,6 +79,10 @@ func insertRows(fileAbsolutePath string, sheetName string, beforeRow int, count 
 	result += fmt.Sprintf("backend: %s\n", workbook.GetBackendName())
 	result += fmt.Sprintf("Inserted %d empty row(s) before row %d in sheet [%s].\n", count, beforeRow, html.EscapeString(sheetName))
 	result += formatSheetRules(worksheet)
-	result += "\nInserted rows carry no formatting. Use excel_format_range if the new rows should match their neighbours.\n"
+	// Excel itself copies the formatting of the row above into inserted rows;
+	// excelize leaves them bare.
+	if workbook.GetBackendName() == "excelize" {
+		result += "\nInserted rows carry no formatting. Use excel_format_range if the new rows should match their neighbours.\n"
+	}
 	return mcp.NewToolResultText(result), nil
 }

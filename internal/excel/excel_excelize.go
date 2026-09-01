@@ -9,6 +9,8 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -29,13 +31,14 @@ func (e *ExcelizeExcel) GetBackendName() string {
 
 func (e *ExcelizeExcel) FindSheet(sheetName string) (Worksheet, error) {
 	index, err := e.file.GetSheetIndex(sheetName)
-	if err != nil {
+	if err != nil || index < 0 {
 		return nil, fmt.Errorf("sheet not found: %s", sheetName)
 	}
-	if index < 0 {
-		return nil, fmt.Errorf("sheet not found: %s", sheetName)
-	}
-	return &ExcelizeWorksheet{file: e.file, sheetName: sheetName}, nil
+	// GetSheetIndex matches case-insensitively, but excelize's row and column
+	// shifting compares the name exactly: given "data" for a sheet stored as
+	// "Data", RemoveRow and InsertRows leave every Data!A1 reference in the
+	// workbook unshifted. Carry the stored casing from here on.
+	return &ExcelizeWorksheet{file: e.file, sheetName: e.file.GetSheetList()[index]}, nil
 }
 
 func (e *ExcelizeExcel) CreateNewSheet(sheetName string) error {
@@ -77,34 +80,56 @@ func (e *ExcelizeExcel) RenameSheet(oldSheetName string, newSheetName string) ([
 	if err != nil || oldIndex < 0 {
 		return nil, fmt.Errorf("sheet not found: %s", oldSheetName)
 	}
+	// GetSheetIndex matches case-insensitively but SetSheetName does not, so
+	// resolve to the stored casing or the sheet keeps its name while every
+	// formula is already pointing at the new one.
+	oldSheetName = e.file.GetSheetList()[oldIndex]
 	if oldSheetName == newSheetName {
 		return nil, nil
 	}
-	// GetSheetIndex matches case-insensitively, so an index that is not the
-	// source sheet means a different sheet already owns the target name.
+	// An index that is not the source sheet means a different sheet already
+	// owns the target name, possibly in another casing.
 	if existingIndex, err := e.file.GetSheetIndex(newSheetName); err == nil && existingIndex >= 0 && existingIndex != oldIndex {
 		return nil, fmt.Errorf("a sheet named [%s] already exists", newSheetName)
 	}
 
-	// Formulas go first: excelize does not validate references, so pointing
-	// them at a name that does not exist yet is fine, and the writes then
-	// never have to care which name the sheet currently carries.
+	// References go first: excelize does not validate them, so pointing them
+	// at a name that does not exist yet is fine, and the writes then never
+	// have to care which name the sheet currently carries.
+	rename := func(sheetName string) (string, bool) {
+		return newSheetName, strings.EqualFold(sheetName, oldSheetName)
+	}
 	err = e.rewriteFormulas(func(sheet string, cell string, formula string) (string, bool) {
-		return ReplaceSheetNameInFormula(formula, oldSheetName, newSheetName)
+		return rewriteSheetNames(formula, rename)
 	})
 	if err != nil {
 		return nil, err
 	}
+	err = e.rewriteSheetReferences(func(site sheetReferenceSite, sheetName string) (string, bool) {
+		return rename(sheetName)
+	})
+	if err != nil {
+		return nil, err
+	}
+	var warnings []string
+	referencing, err := e.conditionalFormatsReferencing(oldSheetName)
+	if err != nil {
+		return nil, err
+	}
+	for _, site := range referencing {
+		warnings = append(warnings, fmt.Sprintf("%s refers to [%s] and was not updated; edit the rule in Excel", site, oldSheetName))
+	}
 	// SetSheetName preserves all cell content, styles, merges, column widths
 	// and row heights; it only edits the sheet's entry in workbook.xml and the
 	// defined names that point at it.
-	return nil, e.file.SetSheetName(oldSheetName, newSheetName)
+	return warnings, e.file.SetSheetName(oldSheetName, newSheetName)
 }
 
 // sheetCell mirrors the parts of a worksheet <c> element that matter for
 // formula rewriting and used-range detection.
 type sheetCell struct {
 	Ref     string    `xml:"r,attr"`
+	Style   string    `xml:"s,attr"`
 	Value   string    `xml:"v"`
 	Inline  *struct{} `xml:"is"`
 	Formula *struct {
@@ -114,8 +139,11 @@ type sheetCell struct {
 	} `xml:"f"`
 }
 
+// hasContent reports whether the cell counts towards the used range. A cell
+// that only carries a style counts, as it does for Excel's UsedRange, so that
+// a formatted but still empty block does not drop out of the paged reads.
 func (c sheetCell) hasContent() bool {
-	return c.Value != "" || c.Inline != nil || c.Formula != nil
+	return c.Value != "" || c.Inline != nil || c.Formula != nil || (c.Style != "" && c.Style != "0")
 }
 
 // errNotWorksheet marks a sheet that holds no cells, such as a chart sheet or
@@ -352,12 +380,24 @@ func (e *ExcelizeExcel) DeleteSheet(sheetName string, force bool) ([]string, err
 	// Resolve to the stored casing so later comparisons are exact.
 	sheetName = sheetList[index]
 
-	// Formulas on the surviving sheets would turn into #REF! errors. Excelize
-	// does not detect this, so refuse rather than hand back a broken workbook.
+	// Anything on the surviving sheets that points at this one would turn
+	// into a #REF! error. Excelize does not detect that, so refuse rather
+	// than hand back a broken workbook.
 	var referencing []string
 	err = e.rewriteFormulas(func(sheet string, cell string, formula string) (string, bool) {
 		if sheet != sheetName && FormulaReferencesSheet(formula, sheetName) {
 			referencing = append(referencing, sheet+"!"+cell)
+		}
+		return "", false
+	})
+	if err != nil {
+		return nil, err
+	}
+	// Defined names are handled below, and a validation on the sheet itself
+	// goes with it.
+	err = e.rewriteSheetReferences(func(site sheetReferenceSite, name string) (string, bool) {
+		if strings.EqualFold(name, sheetName) && site.Kind != "defined name" && site.Sheet != sheetName {
+			referencing = append(referencing, site.String())
 		}
 		return "", false
 	})
@@ -370,30 +410,24 @@ func (e *ExcelizeExcel) DeleteSheet(sheetName string, force bool) ([]string, err
 			shown = shown[:10]
 		}
 		return nil, fmt.Errorf(
-			"refusing to delete sheet [%s]: %d formula cell(s) reference it and would become #REF! errors (%s). Pass force=true to delete anyway",
+			"refusing to delete sheet [%s]: %d place(s) reference it and would become #REF! errors (%s). Pass force=true to delete anyway",
 			sheetName, len(referencing), strings.Join(shown, ", "))
 	}
 
 	var warnings []string
 	if len(referencing) > 0 {
 		warnings = append(warnings, fmt.Sprintf(
-			"%d formula cell(s) referenced [%s] and are now broken: %s",
+			"%d place(s) referenced [%s] and are now broken: %s",
 			len(referencing), sheetName, strings.Join(referencing, ", ")))
 	}
-
 	// Excelize drops defined names scoped to the deleted sheet, but leaves
-	// workbook-scoped ones pointing at it. Remove those too.
+	// every other one pointing at it. Those are removed instead of refused:
+	// a dangling name breaks nothing until something uses it.
 	for _, definedName := range e.file.GetDefinedName() {
-		if definedName.Scope != "Workbook" {
-			continue
-		}
 		if !FormulaReferencesSheet(definedName.RefersTo, sheetName) {
 			continue
 		}
-		if err := e.file.DeleteDefinedName(&excelize.DefinedName{
-			Name:  definedName.Name,
-			Scope: definedName.Scope,
-		}); err != nil {
+		if err := e.file.DeleteDefinedName(&excelize.DefinedName{Name: definedName.Name, Scope: definedName.Scope}); err != nil {
 			return nil, fmt.Errorf("failed to remove defined name [%s] referring to sheet [%s]: %w", definedName.Name, sheetName, err)
 		}
 		warnings = append(warnings, fmt.Sprintf("removed defined name [%s] which referred to the deleted sheet", definedName.Name))
@@ -403,6 +437,170 @@ func (e *ExcelizeExcel) DeleteSheet(sheetName string, force bool) ([]string, err
 		return nil, err
 	}
 	return warnings, nil
+}
+
+// sheetReferenceSite says where a workbook stores a sheet name outside its
+// cell formulas.
+type sheetReferenceSite struct {
+	// Kind is "defined name", "data validation", "chart", "table" or "pivot
+	// table source".
+	Kind string
+	// Sheet is the worksheet holding the site, "" for workbook-level parts.
+	Sheet string
+	// Where is the name, cell range or package part.
+	Where string
+}
+
+func (site sheetReferenceSite) String() string {
+	if site.Sheet == "" {
+		return site.Kind + " " + site.Where
+	}
+	return site.Kind + " on " + site.Sheet + "!" + site.Where
+}
+
+// packageReferenceSpecs locate sheet references in the package parts that
+// excelize keeps as raw XML until one of their own APIs is called. Group 1
+// of the pattern is everything up to the text, group 2 the text itself.
+var packageReferenceSpecs = []struct {
+	kind    string
+	prefix  string
+	pattern *regexp.Regexp
+	// formula says the text is a formula; otherwise it is a bare sheet name.
+	formula bool
+}{
+	{"chart", "xl/charts/chart", regexp.MustCompile(`(<(?:[A-Za-z0-9]+:)?f>)([^<]*)`), true},
+	{"table", "xl/tables/table", regexp.MustCompile(`(<(?:calculatedColumnFormula|totalsRowFormula)(?:\s[^>]*)?>)([^<]*)`), true},
+	{"pivot table source", "xl/pivotCache/pivotCacheDefinition", regexp.MustCompile(`(<worksheetSource\b[^>]*?\bsheet=")([^"]*)`), false},
+}
+
+// rewriteSheetReferences offers every sheet name the workbook stores outside
+// its cell formulas to visit, which returns a replacement and true to
+// substitute it: defined names, data validation formulas, chart series, table
+// column formulas and pivot table sources. Excel adjusts all of these on a
+// rename; excelize's SetSheetName only adjusts plain-range defined names.
+//
+// Conditional formatting is deliberately not covered, see
+// conditionalFormatsReferencing.
+func (e *ExcelizeExcel) rewriteSheetReferences(visit func(site sheetReferenceSite, sheetName string) (string, bool)) error {
+	rewrite := func(site sheetReferenceSite, formula string) (string, bool) {
+		return rewriteSheetNames(formula, func(sheetName string) (string, bool) {
+			return visit(site, sheetName)
+		})
+	}
+	if names := e.file.WorkBook.DefinedNames; names != nil {
+		for i := range names.DefinedName {
+			// Edited in place: DeleteDefinedName plus SetDefinedName would
+			// drop the hidden flag that autofilter names carry.
+			definedName := &names.DefinedName[i]
+			if updated, changed := rewrite(sheetReferenceSite{Kind: "defined name", Where: definedName.Name}, definedName.Data); changed {
+				definedName.Data = updated
+			}
+		}
+	}
+	for _, sheet := range e.file.GetSheetList() {
+		if _, err := e.sheetXMLPath(sheet); errors.Is(err, errNotWorksheet) {
+			continue
+		}
+		validations, err := e.file.GetDataValidations(sheet)
+		if err != nil {
+			return err
+		}
+		for _, validation := range validations {
+			site := sheetReferenceSite{Kind: "data validation", Sheet: sheet, Where: validation.Sqref}
+			changed := false
+			for _, formula := range []*string{&validation.Formula1, &validation.Formula2} {
+				if updated, ok := rewrite(site, *formula); ok {
+					// GetDataValidations unescapes the formula text, while
+					// AddDataValidation stores it as inner XML verbatim.
+					*formula, changed = xmlEscaper.Replace(updated), true
+				}
+			}
+			if !changed {
+				continue
+			}
+			if err := e.file.DeleteDataValidation(sheet, validation.Sqref); err != nil {
+				return err
+			}
+			if err := e.file.AddDataValidation(sheet, validation); err != nil {
+				return fmt.Errorf("failed to update data validation on %s!%s: %w", sheet, validation.Sqref, err)
+			}
+		}
+	}
+	e.file.Pkg.Range(func(key any, value any) bool {
+		part, _ := key.(string)
+		content, _ := value.([]byte)
+		for _, spec := range packageReferenceSpecs {
+			if !strings.HasPrefix(part, spec.prefix) || !strings.HasSuffix(part, ".xml") {
+				continue
+			}
+			site := sheetReferenceSite{Kind: spec.kind, Where: path.Base(part)}
+			changed := false
+			updated := spec.pattern.ReplaceAllFunc(content, func(match []byte) []byte {
+				groups := spec.pattern.FindSubmatch(match)
+				text := unescapeXML(string(groups[2]))
+				var replacement string
+				var ok bool
+				if spec.formula {
+					replacement, ok = rewrite(site, text)
+				} else {
+					replacement, ok = visit(site, text)
+				}
+				if !ok {
+					return match
+				}
+				changed = true
+				return append(groups[1], xmlEscaper.Replace(replacement)...)
+			})
+			if changed {
+				e.file.Pkg.Store(part, updated)
+			}
+		}
+		return true
+	})
+	return nil
+}
+
+// conditionalFormatsReferencing lists the conditional formatting rule ranges
+// whose formulas refer to sheetName. They are reported rather than rewritten:
+// excelize can only round-trip the rule types it knows and renumbers rule
+// priorities on the way back, so rewriting could damage rules that were fine.
+func (e *ExcelizeExcel) conditionalFormatsReferencing(sheetName string) ([]string, error) {
+	var sites []string
+	for _, sheet := range e.file.GetSheetList() {
+		if _, err := e.sheetXMLPath(sheet); errors.Is(err, errNotWorksheet) {
+			continue
+		}
+		formats, err := e.file.GetConditionalFormats(sheet)
+		if err != nil {
+			return nil, err
+		}
+		for rangeRef, rules := range formats {
+			for _, rule := range rules {
+				formulas := []string{rule.Criteria, rule.Value, rule.MinValue, rule.MidValue, rule.MaxValue}
+				if slices.ContainsFunc(formulas, func(formula string) bool { return FormulaReferencesSheet(formula, sheetName) }) {
+					sites = append(sites, sheetReferenceSite{Kind: "conditional formatting", Sheet: sheet, Where: rangeRef}.String())
+					break
+				}
+			}
+		}
+	}
+	sort.Strings(sites)
+	return sites, nil
+}
+
+// xmlEscaper renders text for storage inside an XML element or attribute.
+// Sheet names may contain "&" (P&L is a classic) and "<", so this is not
+// optional.
+var xmlEscaper = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", `"`, "&quot;")
+
+func unescapeXML(text string) string {
+	var decoded struct {
+		Text string `xml:",chardata"`
+	}
+	if err := xml.Unmarshal([]byte("<x>"+text+"</x>"), &decoded); err != nil {
+		return text
+	}
+	return decoded.Text
 }
 
 func (e *ExcelizeExcel) MoveSheet(sheetName string, index int) error {
@@ -722,10 +920,27 @@ func (w *ExcelizeWorksheet) DeleteRows(startRow int, endRow int) error {
 	if err != nil {
 		return err
 	}
+	// Defined names get the same treatment: excelize would shrink a name
+	// covering only deleted rows onto whichever row lands there.
+	if names := w.file.WorkBook.DefinedNames; names != nil {
+		for i := range names.DefinedName {
+			if updated, changed := BreakReferencesToRows(names.DefinedName[i].Data, "", w.sheetName, startRow, endRow); changed {
+				names.DefinedName[i].Data = updated
+			}
+		}
+	}
 	// Excelize removes one row at a time and adjusts merges, conditional
 	// formats, data validations, defined names and formulas on each call, so
-	// the row to remove stays startRow as the rows below shift up.
-	for i := 0; i < endRow-startRow+1; i++ {
+	// the row to remove stays startRow as the rows below shift up. Each call
+	// re-reads every formula in the workbook, which makes "delete everything
+	// below row 100" take the better part of an hour when taken literally, so
+	// the loop stops at the last used row: the rows past it are empty, and
+	// the references into them were broken above.
+	_, _, _, lastRow, err := w.usedRange()
+	if err != nil {
+		return err
+	}
+	for row := startRow; row <= min(endRow, lastRow); row++ {
 		if err := w.file.RemoveRow(w.sheetName, startRow); err != nil {
 			return err
 		}
@@ -750,32 +965,7 @@ func (w *ExcelizeWorksheet) InsertRows(beforeRow int, count int) error {
 // updateDimension only ever grows the range, but deleting rows has to shrink
 // it too, otherwise paging keeps walking over rows that no longer exist.
 func (w *ExcelizeWorksheet) recalculateDimension() error {
-	minCol, minRow, maxCol, maxRow := 0, 0, 0, 0
-	err := (&ExcelizeExcel{file: w.file}).eachSheetCell(w.sheetName, func(cell sheetCell) error {
-		if !cell.hasContent() {
-			return nil
-		}
-		column, row, err := excelize.CellNameToCoordinates(cell.Ref)
-		if err != nil {
-			return err
-		}
-		if minCol == 0 || column < minCol {
-			minCol = column
-		}
-		if column > maxCol {
-			maxCol = column
-		}
-		if minRow == 0 || row < minRow {
-			minRow = row
-		}
-		if row > maxRow {
-			maxRow = row
-		}
-		return nil
-	})
-	if errors.Is(err, errNotWorksheet) {
-		return nil
-	}
+	minCol, minRow, maxCol, maxRow, err := w.usedRange()
 	if err != nil {
 		return err
 	}
@@ -791,6 +981,32 @@ func (w *ExcelizeWorksheet) recalculateDimension() error {
 		return err
 	}
 	return w.file.SetSheetDimension(w.sheetName, start+":"+end)
+}
+
+// usedRange returns the bounds of the cells that hold content, all zero for
+// an empty sheet or one that is not a worksheet.
+func (w *ExcelizeWorksheet) usedRange() (minCol int, minRow int, maxCol int, maxRow int, err error) {
+	err = (&ExcelizeExcel{file: w.file}).eachSheetCell(w.sheetName, func(cell sheetCell) error {
+		if !cell.hasContent() {
+			return nil
+		}
+		column, row, err := excelize.CellNameToCoordinates(cell.Ref)
+		if err != nil {
+			return err
+		}
+		if minCol == 0 || column < minCol {
+			minCol = column
+		}
+		if minRow == 0 || row < minRow {
+			minRow = row
+		}
+		maxCol, maxRow = max(maxCol, column), max(maxRow, row)
+		return nil
+	})
+	if errors.Is(err, errNotWorksheet) {
+		err = nil
+	}
+	return minCol, minRow, maxCol, maxRow, err
 }
 
 func (w *ExcelizeWorksheet) GetConditionalFormatRanges() ([]string, error) {

@@ -2,6 +2,7 @@ package excel
 
 import (
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode"
@@ -22,10 +23,16 @@ var cellReferencePattern = regexp.MustCompile(`^[A-Za-z]{1,3}[0-9]{1,7}$`)
 // so that whole-column ("A:A") and whole-row ("5:10") references parse too.
 var referencePartPattern = regexp.MustCompile(`^(\$?)([A-Za-z]{0,3})(\$?)([0-9]{0,7})$`)
 
+// sheetNameNeedsQuotes reports whether name must be wrapped in single quotes
+// in front of the "!" of a formula reference.
+func sheetNameNeedsQuotes(name string) bool {
+	return !unquotedSheetNamePattern.MatchString(name) || cellReferencePattern.MatchString(name)
+}
+
 // QuoteSheetNameForFormula renders a sheet name as it must appear in front of
 // the "!" in a formula, adding single quotes only when they are required.
 func QuoteSheetNameForFormula(name string) string {
-	if unquotedSheetNamePattern.MatchString(name) && !cellReferencePattern.MatchString(name) {
+	if !sheetNameNeedsQuotes(name) {
 		return name
 	}
 	return "'" + strings.ReplaceAll(name, "'", "''") + "'"
@@ -237,25 +244,45 @@ func readErrorLiteral(runes []rune, i int) int {
 	return i
 }
 
+// rewriteSheetNames offers every sheet name that formula refers to, including
+// both endpoints of a 3D reference such as Sheet1:Sheet3!A1, to visit, which
+// returns a replacement name and true to substitute it. References into other
+// workbooks are never offered.
+func rewriteSheetNames(formula string, visit func(sheetName string) (string, bool)) (string, bool) {
+	return rewriteFormulaReferences(formula, func(ref formulaReference) (string, bool) {
+		if ref.External || ref.Qualifier == "" {
+			return "", false
+		}
+		// A sheet name cannot contain ":", so a colon in the qualifier can
+		// only separate the two endpoints of a 3D span.
+		endpoints := strings.Split(ref.Sheet, ":")
+		changed := false
+		for i, endpoint := range endpoints {
+			if replacement, ok := visit(endpoint); ok {
+				endpoints[i], changed = replacement, true
+			}
+		}
+		if !changed {
+			return "", false
+		}
+		// Excel quotes a 3D span as a whole, as in 'Sheet 1:Sheet3'!A1, as
+		// soon as either endpoint needs it.
+		qualifier := strings.Join(endpoints, ":")
+		if slices.ContainsFunc(endpoints, sheetNameNeedsQuotes) {
+			qualifier = "'" + strings.ReplaceAll(qualifier, "'", "''") + "'"
+		}
+		return qualifier + "!" + ref.Ref, true
+	})
+}
+
 // ReplaceSheetNameInFormula rewrites every reference to oldName in an Excel
 // formula so it points at newName, and reports whether anything changed.
 //
 // Excelize's SetSheetName deliberately leaves formulas alone, so without this
 // a rename silently turns every cross-sheet formula into a broken reference.
-//
-// A 3D reference such as Sheet1:Sheet3!A1 is left untouched even when oldName
-// is one of its endpoints: ref.Sheet holds the whole "Sheet1:Sheet3" span, so
-// it never equals oldName and this function safely no-ops on it rather than
-// risk misquoting the pair. Known incompleteness, not corruption: the rename
-// silently fails to reach a 3D reference; see FormulaReferencesSheet for the
-// case that matters more, refusing to delete a sheet that is still in use.
 func ReplaceSheetNameInFormula(formula string, oldName string, newName string) (string, bool) {
-	replacement := QuoteSheetNameForFormula(newName) + "!"
-	return rewriteFormulaReferences(formula, func(ref formulaReference) (string, bool) {
-		if ref.External || !strings.EqualFold(ref.Sheet, oldName) {
-			return "", false
-		}
-		return replacement + ref.Ref, true
+	return rewriteSheetNames(formula, func(sheetName string) (string, bool) {
+		return newName, strings.EqualFold(sheetName, oldName)
 	})
 }
 
@@ -263,20 +290,12 @@ func ReplaceSheetNameInFormula(formula string, oldName string, newName string) (
 //
 // A 3D reference such as Sheet1:Sheet3!A1 covers every sheet between its two
 // endpoints in tab order, but this function has no access to that order, so
-// it can only recognise sheetName as one of the two named endpoints, not as
-// a sheet lying between them. That is the best this signature can do; a
-// sheet named exactly at either end is still caught, which is what stops a
-// delete-sheet call from silently breaking that reference.
+// it only recognises sheetName as one of the two named endpoints, not as a
+// sheet lying between them.
 func FormulaReferencesSheet(formula string, sheetName string) bool {
 	found := false
-	rewriteFormulaReferences(formula, func(ref formulaReference) (string, bool) {
-		if ref.External {
-			return "", false
-		}
-		first, last, _ := strings.Cut(ref.Sheet, ":")
-		if strings.EqualFold(first, sheetName) || (last != "" && strings.EqualFold(last, sheetName)) {
-			found = true
-		}
+	rewriteSheetNames(formula, func(name string) (string, bool) {
+		found = found || strings.EqualFold(name, sheetName)
 		return "", false
 	})
 	return found
@@ -378,14 +397,10 @@ func ShiftFormulaReferences(formula string, dCol int, dRow int) string {
 			}
 			parts[i] = match[1] + column + match[3] + row
 		}
-		return ref.Qualifier + qualifierSeparator(ref) + strings.Join(parts, ":"), true
+		if ref.Qualifier != "" {
+			return ref.Qualifier + "!" + strings.Join(parts, ":"), true
+		}
+		return strings.Join(parts, ":"), true
 	})
 	return shifted
-}
-
-func qualifierSeparator(ref formulaReference) string {
-	if ref.Qualifier == "" {
-		return ""
-	}
-	return "!"
 }

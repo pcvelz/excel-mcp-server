@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/xuri/excelize/v2"
 )
@@ -173,6 +174,15 @@ func TestDeleteRowsShiftsFormulas(t *testing.T) {
 	if err := file.SetCellFormula(sheet, "G1", "A6+$A$1", excelize.FormulaOpts{Type: &formulaType, Ref: &ref}); err != nil {
 		t.Fatal(err)
 	}
+	names := map[string]struct{ refersTo, want string }{
+		"Staart": {"Sheet1!$A$16:$A$20", "Sheet1!$A$5:$A$9"},
+		"Midden": {"Sheet1!$A$6:$A$10", "#REF!"},
+	}
+	for name, n := range names {
+		if err := file.SetDefinedName(&excelize.DefinedName{Name: name, RefersTo: n.refersTo}); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if err := file.SaveAs(path); err != nil {
 		t.Fatal(err)
 	}
@@ -186,6 +196,11 @@ func TestDeleteRowsShiftsFormulas(t *testing.T) {
 	}
 	defer reopened.Close()
 
+	for _, definedName := range reopened.GetDefinedName() {
+		if n, ok := names[definedName.Name]; ok && definedName.RefersTo != n.want {
+			t.Errorf("defined name %s: %s became %q, want %q", definedName.Name, n.refersTo, definedName.RefersTo, n.want)
+		}
+	}
 	for cell, c := range same {
 		if got, _ := reopened.GetCellFormula(sheet, cell); got != c.want {
 			t.Errorf("%s: %s became %q, want %q", cell, c.formula, got, c.want)
@@ -380,6 +395,78 @@ func TestRowToolsRejectInvalidRanges(t *testing.T) {
 	message = fail(insertRows(path, "Bestaat niet", 1, 1))
 	if !strings.Contains(message, "sheet not found") {
 		t.Errorf("expected a not-found error, got: %s", message)
+	}
+}
+
+// TestRowToolsAcceptAnyCasing pins the excelize quirk that makes FindSheet
+// canonicalise the name: RemoveRow("data") on a sheet stored as "Data" moves
+// the rows but leaves every Data!A1 reference in the workbook unshifted.
+func TestRowToolsAcceptAnyCasing(t *testing.T) {
+	ok := expectOK(t)
+	path := filepath.Join(t.TempDir(), "casing.xlsx")
+
+	file := excelize.NewFile()
+	if err := file.SetSheetName(file.GetSheetName(0), "Data"); err != nil {
+		t.Fatal(err)
+	}
+	for row := 1; row <= 20; row++ {
+		if err := file.SetCellInt("Data", fmt.Sprintf("A%d", row), int64(row)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := file.NewSheet("Report"); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.SetCellFormula("Report", "A1", "=Data!A20"); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.SaveAs(path); err != nil {
+		t.Fatal(err)
+	}
+	file.Close()
+
+	ok(deleteRows(path, "data", 5, 15))
+	ok(insertRows(path, "DATA", 2, 3))
+
+	reopened, err := excelize.OpenFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	if got, _ := reopened.GetCellFormula("Report", "A1"); got != "Data!A12" {
+		t.Errorf("Report!A1 = %q, want Data!A12", got)
+	}
+	if got, _ := reopened.GetCellValue("Data", "A12"); got != "20" {
+		t.Errorf("Data!A12 = %q, want 20", got)
+	}
+}
+
+// TestDeleteRowsToTheBottom covers "delete everything below row N", which
+// taken literally is a million excelize RemoveRow calls.
+func TestDeleteRowsToTheBottom(t *testing.T) {
+	ok := expectOK(t)
+	path := filepath.Join(t.TempDir(), "excel-mcp-tabtest.xlsx")
+	buildTabTestWorkbook(t, path)
+
+	started := time.Now()
+	ok(deleteRows(path, "Blad3", 4, excelize.TotalRows))
+	if elapsed := time.Since(started); elapsed > 5*time.Second {
+		t.Errorf("deleting to the bottom took %s, the loop is not capped at the used range", elapsed)
+	}
+
+	file, err := excelize.OpenFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	if got, _ := file.GetCellValue("Blad3", "A3"); got != "oudklant1" {
+		t.Errorf("A3 = %q, want oudklant1 to survive", got)
+	}
+	if got, _ := file.GetCellValue("Blad3", "A4"); got != "" {
+		t.Errorf("A4 = %q, want everything from row 4 down gone", got)
+	}
+	if got, _ := file.GetSheetDimension("Blad3"); got != "A2:D3" {
+		t.Errorf("used range = %q, want A2:D3", got)
 	}
 }
 

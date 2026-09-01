@@ -26,7 +26,7 @@ var excelDeleteSheetArgumentsSchema = z.Struct(z.Shape{
 
 func AddExcelDeleteSheetTool(server *server.MCPServer) {
 	server.AddTool(mcp.NewTool("excel_delete_sheet",
-		mcp.WithDescription("Delete a sheet from the Excel file. Refuses to delete the last remaining sheet, and refuses to delete a sheet that formulas on other sheets still refer to unless force is set. Defined names pointing at the deleted sheet are removed."),
+		mcp.WithDescription("Delete a sheet from the Excel file. Refuses to delete the last remaining sheet, and refuses to delete a sheet that formulas, data validations, charts, tables or pivot tables elsewhere in the workbook still refer to unless force is set. Defined names pointing at the deleted sheet are removed."),
 		mcp.WithString("fileAbsolutePath",
 			mcp.Required(),
 			mcp.Description("Absolute path to the Excel file"),
@@ -36,7 +36,7 @@ func AddExcelDeleteSheetTool(server *server.MCPServer) {
 			mcp.Description("Name of the sheet to delete"),
 		),
 		mcp.WithBoolean("force",
-			mcp.Description("Delete even when formulas on other sheets refer to this sheet, leaving those formulas broken. Defaults to false."),
+			mcp.Description("Delete even when formulas, data validations, charts, tables or pivot tables elsewhere refer to this sheet, leaving those references broken. Defaults to false."),
 		),
 	), handleDeleteSheet)
 }
