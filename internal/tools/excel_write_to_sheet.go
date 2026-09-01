@@ -2,7 +2,10 @@ package tools
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
+	"os"
 	"regexp"
 	"time"
 
@@ -106,6 +109,16 @@ func handleWriteToSheet(ctx context.Context, request mcp.CallToolRequest) (*mcp.
 }
 
 func writeSheet(fileAbsolutePath string, sheetName string, newSheet bool, rangeStr string, values [][]any) (*mcp.CallToolResult, error) {
+	// newSheet on a path that does not exist yet means "start a new workbook";
+	// without this there is no way to create an Excel file from scratch.
+	if newSheet {
+		if _, err := os.Stat(fileAbsolutePath); errors.Is(err, fs.ErrNotExist) {
+			if err := excel.CreateWorkbook(fileAbsolutePath, sheetName); err != nil {
+				return imcp.NewToolResultInvalidArgumentError(err.Error()), nil
+			}
+		}
+	}
+
 	workbook, closeFn, err := excel.OpenFile(fileAbsolutePath)
 	if err != nil {
 		return nil, err

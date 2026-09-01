@@ -15,6 +15,9 @@ This fork ([pcvelz/excel-mcp-server](https://github.com/pcvelz/excel-mcp-server)
 - **Cell type attributes** — `type` attribute (string, number, formula, date) in `showStyle` output
 - **Raw value attributes** — `raw` attribute showing unformatted values alongside displayed values
 - **ISO date auto-conversion** — write ISO date strings (e.g., `"2026-02-03"`) and they're automatically converted to Excel date serial numbers
+- **Sheet management** — `excel_rename_sheet`, `excel_delete_sheet` and `excel_move_sheet` for renaming, removing and reordering tabs
+- **New workbooks from scratch** — `excel_write_to_sheet` with `newSheet: true` creates the file when the path does not exist yet
+- **Merges and column widths in `showStyle` output** — reported alongside the styled cell table
 
 See the [upstream comparison](https://github.com/negokaz/excel-mcp-server/compare/main...pcvelz:excel-mcp-server:main) for full diff.
 
@@ -22,7 +25,8 @@ See the [upstream comparison](https://github.com/negokaz/excel-mcp-server/compar
 
 - Read/Write text values
 - Read/Write formulas
-- Create new sheets
+- Create new sheets and new workbooks
+- Rename, delete and reorder sheets
 
 **🪟Windows only:**
 - Live editing
@@ -114,6 +118,7 @@ Read values from Excel sheet with pagination.
         - `style-ref`: References to style definitions (border, font, fill, alignment, numFmt)
         - `type`: Cell type (number, string, date, bool, formula, error)
         - `raw`: Raw/unformatted value (shown when different from displayed value, e.g., `raw="45691"` for a date displayed as "3-Feb")
+        - `merged cells` and `column widths` in the metadata list, since these live on the sheet rather than on individual cells
 
 ### `excel_screen_capture`
 
@@ -138,6 +143,7 @@ Write values to the Excel sheet.
     - Sheet name in the Excel file
 - `newSheet` (optional, default: `false`)
     - Create a new sheet if true, otherwise write to the existing sheet
+    - If the file itself does not exist yet, a new workbook is created containing just that sheet
 - `range`
     - Range of cells to read in the Excel sheet (e.g., "A1:C10").
 - `values`
@@ -169,6 +175,45 @@ Copy existing sheet to a new sheet
     - Source sheet name in the Excel file
 - `dstSheetName`
     - Sheet name to be copied
+
+### `excel_rename_sheet`
+
+Rename a sheet. Cell values, formatting, merged cells, column widths and row heights are preserved, and formulas referring to the sheet are updated to point at the new name.
+
+**Arguments:**
+- `fileAbsolutePath`
+    - Absolute path to the Excel file
+- `sheetName`
+    - Current name of the sheet to rename
+- `newName`
+    - New name for the sheet. Maximum 31 characters, and it cannot contain `: \ / ? * [ ]`
+
+> [!NOTE]
+> On the excelize backend, formulas are rewritten by this server. Sheets larger than 100,000 cells are skipped and reported as a warning in the tool output rather than being rewritten silently.
+
+### `excel_delete_sheet`
+
+Delete a sheet. Refuses to delete the last remaining sheet, and refuses to delete a sheet that formulas on other sheets still refer to unless `force` is set. Defined names pointing at the deleted sheet are removed.
+
+**Arguments:**
+- `fileAbsolutePath`
+    - Absolute path to the Excel file
+- `sheetName`
+    - Name of the sheet to delete
+- `force` (optional, default: `false`)
+    - Delete even when formulas on other sheets refer to this sheet, leaving those formulas broken. The affected cells are listed in the tool output.
+
+### `excel_move_sheet`
+
+Move a sheet to another position in the tab order. Content and formatting are untouched.
+
+**Arguments:**
+- `fileAbsolutePath`
+    - Absolute path to the Excel file
+- `sheetName`
+    - Name of the sheet to move
+- `index`
+    - Zero-based target position. `0` makes the sheet the first tab, which is the one shown when the workbook is opened.
 
 ### `excel_format_range`
 

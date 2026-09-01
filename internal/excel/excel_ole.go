@@ -14,6 +14,7 @@ import (
 	"github.com/go-ole/go-ole"
 	"github.com/go-ole/go-ole/oleutil"
 	"github.com/skanehira/clipboard-image"
+	"github.com/xuri/excelize/v2"
 )
 
 type OleExcel struct {
@@ -202,6 +203,158 @@ func (o *OleExcel) CopySheet(srcSheetName string, dstSheetName string) error {
 	return nil
 }
 
+func (o *OleExcel) SheetNames() ([]string, error) {
+	worksheets := oleutil.MustGetProperty(o.workbook, "Worksheets").ToIDispatch()
+	defer worksheets.Release()
+
+	count := int(oleutil.MustGetProperty(worksheets, "Count").Val)
+	names := make([]string, 0, count)
+	for i := 1; i <= count; i++ {
+		worksheet := oleutil.MustGetProperty(worksheets, "Item", i).ToIDispatch()
+		names = append(names, oleutil.MustGetProperty(worksheet, "Name").ToString())
+		worksheet.Release()
+	}
+	return names, nil
+}
+
+// RenameSheet renames a sheet. Excel itself rewrites every formula, chart and
+// defined name that points at the sheet, so there is nothing to warn about.
+func (o *OleExcel) RenameSheet(oldSheetName string, newSheetName string) ([]string, error) {
+	if oldSheetName == newSheetName {
+		return nil, nil
+	}
+	names, err := o.SheetNames()
+	if err != nil {
+		return nil, err
+	}
+	found := false
+	for _, name := range names {
+		if strings.EqualFold(name, newSheetName) && !strings.EqualFold(name, oldSheetName) {
+			return nil, fmt.Errorf("a sheet named [%s] already exists", newSheetName)
+		}
+		if name == oldSheetName {
+			found = true
+		}
+	}
+	if !found {
+		return nil, fmt.Errorf("sheet not found: %s", oldSheetName)
+	}
+
+	worksheets := oleutil.MustGetProperty(o.workbook, "Worksheets").ToIDispatch()
+	defer worksheets.Release()
+
+	sheetVariant, err := oleutil.GetProperty(worksheets, "Item", oldSheetName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get sheet: %w", err)
+	}
+	sheet := sheetVariant.ToIDispatch()
+	defer sheet.Release()
+
+	if _, err := oleutil.PutProperty(sheet, "Name", newSheetName); err != nil {
+		return nil, err
+	}
+	return nil, nil
+}
+
+// DeleteSheet deletes a sheet. Excel prompts for confirmation on Delete, so
+// alerts are suppressed for the duration of the call. The force flag is
+// accepted for interface parity; Excel updates references by itself.
+func (o *OleExcel) DeleteSheet(sheetName string, force bool) ([]string, error) {
+	names, err := o.SheetNames()
+	if err != nil {
+		return nil, err
+	}
+	if len(names) <= 1 {
+		return nil, fmt.Errorf("cannot delete sheet [%s]: a workbook must keep at least one sheet", sheetName)
+	}
+	found := false
+	for _, name := range names {
+		if name == sheetName {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return nil, fmt.Errorf("sheet not found: %s", sheetName)
+	}
+
+	worksheets := oleutil.MustGetProperty(o.workbook, "Worksheets").ToIDispatch()
+	defer worksheets.Release()
+
+	sheetVariant, err := oleutil.GetProperty(worksheets, "Item", sheetName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get sheet: %w", err)
+	}
+	sheet := sheetVariant.ToIDispatch()
+	defer sheet.Release()
+
+	oleutil.MustPutProperty(o.application, "DisplayAlerts", false)
+	defer oleutil.MustPutProperty(o.application, "DisplayAlerts", true)
+
+	if _, err := oleutil.CallMethod(sheet, "Delete"); err != nil {
+		return nil, err
+	}
+	return nil, nil
+}
+
+func (o *OleExcel) MoveSheet(sheetName string, index int) error {
+	names, err := o.SheetNames()
+	if err != nil {
+		return err
+	}
+	currentIndex := -1
+	for i, name := range names {
+		if name == sheetName {
+			currentIndex = i
+			break
+		}
+	}
+	if currentIndex < 0 {
+		return fmt.Errorf("sheet not found: %s", sheetName)
+	}
+	if index < 0 || index >= len(names) {
+		return fmt.Errorf("index %d is out of range: the workbook has %d sheets (valid indexes are 0-%d)", index, len(names), len(names)-1)
+	}
+	if index == currentIndex {
+		return nil
+	}
+
+	worksheets := oleutil.MustGetProperty(o.workbook, "Worksheets").ToIDispatch()
+	defer worksheets.Release()
+
+	sourceVariant, err := oleutil.GetProperty(worksheets, "Item", sheetName)
+	if err != nil {
+		return fmt.Errorf("failed to get sheet: %w", err)
+	}
+	source := sourceVariant.ToIDispatch()
+	defer source.Release()
+
+	// Worksheets is 1-based. Moving forward has to anchor "After" the sheet
+	// currently at the target position, because the source is removed first.
+	if index < currentIndex {
+		anchorVariant, err := oleutil.GetProperty(worksheets, "Item", index+1)
+		if err != nil {
+			return fmt.Errorf("failed to get anchor sheet: %w", err)
+		}
+		anchor := anchorVariant.ToIDispatch()
+		defer anchor.Release()
+		if _, err := oleutil.CallMethod(source, "Move", anchor); err != nil {
+			return err
+		}
+		return nil
+	}
+	anchorVariant, err := oleutil.GetProperty(worksheets, "Item", index+1)
+	if err != nil {
+		return fmt.Errorf("failed to get anchor sheet: %w", err)
+	}
+	anchor := anchorVariant.ToIDispatch()
+	defer anchor.Release()
+	if _, err := oleutil.CallMethod(source, "Move", nil, anchor); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (o *OleExcel) Save() error {
 	_, err := oleutil.CallMethod(o.workbook, "Save")
 	if err != nil {
@@ -358,6 +511,57 @@ func (o *OleWorksheet) GetDimention() (string, error) {
 	defer range_.Release()
 	dimension := oleutil.MustGetProperty(range_, "Address").ToString()
 	return NormalizeRange(dimension), nil
+}
+
+func (o *OleWorksheet) GetMergedCells() ([]string, error) {
+	usedRange := oleutil.MustGetProperty(o.worksheet, "UsedRange").ToIDispatch()
+	defer usedRange.Release()
+
+	areas := oleutil.MustGetProperty(usedRange, "Cells").ToIDispatch()
+	defer areas.Release()
+
+	count := int(oleutil.MustGetProperty(areas, "Count").Val)
+	seen := make(map[string]struct{})
+	var ranges []string
+	for i := 1; i <= count; i++ {
+		cell := oleutil.MustGetProperty(areas, "Item", i).ToIDispatch()
+		mergeCells := oleutil.MustGetProperty(cell, "MergeCells")
+		if mergeCells.Value() != true {
+			cell.Release()
+			continue
+		}
+		area := oleutil.MustGetProperty(cell, "MergeArea").ToIDispatch()
+		address := oleutil.MustGetProperty(area, "Address", false, false).ToString()
+		area.Release()
+		cell.Release()
+		normalized := NormalizeRange(address)
+		if _, ok := seen[normalized]; ok {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		ranges = append(ranges, normalized)
+	}
+	return ranges, nil
+}
+
+func (o *OleWorksheet) GetColumnWidths(startCol int, endCol int) (map[string]float64, error) {
+	columns := oleutil.MustGetProperty(o.worksheet, "Columns").ToIDispatch()
+	defer columns.Release()
+
+	widths := make(map[string]float64)
+	for col := startCol; col <= endCol; col++ {
+		name, err := excelize.ColumnNumberToName(col)
+		if err != nil {
+			return nil, err
+		}
+		column := oleutil.MustGetProperty(columns, "Item", col).ToIDispatch()
+		width := oleutil.MustGetProperty(column, "ColumnWidth")
+		column.Release()
+		if w, ok := width.Value().(float64); ok {
+			widths[name] = w
+		}
+	}
+	return widths, nil
 }
 
 func (o *OleWorksheet) GetPagingStrategy(pageSize int) (PagingStrategy, error) {

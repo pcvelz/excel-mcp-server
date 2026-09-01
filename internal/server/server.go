@@ -25,6 +25,9 @@ func New(version string) *ExcelServer {
 	tools.AddExcelWriteToSheetTool(s.server)
 	tools.AddExcelCreateTableTool(s.server)
 	tools.AddExcelCopySheetTool(s.server)
+	tools.AddExcelRenameSheetTool(s.server)
+	tools.AddExcelDeleteSheetTool(s.server)
+	tools.AddExcelMoveSheetTool(s.server)
 	tools.AddExcelFormatRangeTool(s.server)
 	return s
 }

@@ -15,6 +15,17 @@ type Excel interface {
 	CreateNewSheet(sheetName string) error
 	// CopySheet copies a sheet from one to another.
 	CopySheet(srcSheetName, destSheetName string) error
+	// SheetNames returns the names of all worksheets in workbook order.
+	SheetNames() ([]string, error)
+	// RenameSheet renames a sheet, keeping its content and formatting intact.
+	// Returns non-fatal warnings about anything the backend could not adjust.
+	RenameSheet(oldSheetName, newSheetName string) ([]string, error)
+	// DeleteSheet deletes a sheet. It refuses to delete the last remaining
+	// sheet, and refuses to leave dangling references behind unless force is
+	// set. Returns non-fatal warnings about what was cleaned up.
+	DeleteSheet(sheetName string, force bool) ([]string, error)
+	// MoveSheet moves a sheet to the given zero-based position in the workbook.
+	MoveSheet(sheetName string, index int) error
 	// Save saves the Excel file.
 	Save() error
 }
@@ -53,6 +64,11 @@ type Worksheet interface {
 	GetCellStyle(cell string) (*CellStyle, error)
 	// SetCellStyle sets style for the specified cell.
 	SetCellStyle(cell string, style *CellStyle) error
+	// GetMergedCells returns the merged cell ranges of this worksheet.
+	GetMergedCells() ([]string, error)
+	// GetColumnWidths returns the explicitly set column widths of this
+	// worksheet, keyed by column name (e.g. "B").
+	GetColumnWidths(startCol, endCol int) (map[string]float64, error)
 }
 
 type Table struct {
@@ -75,12 +91,12 @@ type CellStyle struct {
 }
 
 type AlignmentStyle struct {
-	Horizontal *string `yaml:"horizontal,omitempty"` // left, center, right, fill, justify, centerContinuous, distributed
-	Vertical   *string `yaml:"vertical,omitempty"`   // top, center, bottom, justify, distributed
-	WrapText   *bool   `yaml:"wrapText,omitempty"`
-	ShrinkToFit *bool  `yaml:"shrinkToFit,omitempty"`
-	TextRotation *int  `yaml:"textRotation,omitempty"` // 0-180 or 255 for vertical
-	Indent     *int    `yaml:"indent,omitempty"`
+	Horizontal   *string `yaml:"horizontal,omitempty"` // left, center, right, fill, justify, centerContinuous, distributed
+	Vertical     *string `yaml:"vertical,omitempty"`   // top, center, bottom, justify, distributed
+	WrapText     *bool   `yaml:"wrapText,omitempty"`
+	ShrinkToFit  *bool   `yaml:"shrinkToFit,omitempty"`
+	TextRotation *int    `yaml:"textRotation,omitempty"` // 0-180 or 255 for vertical
+	Indent       *int    `yaml:"indent,omitempty"`
 }
 
 type Border struct {

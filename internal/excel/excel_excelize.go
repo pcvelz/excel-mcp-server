@@ -62,6 +62,224 @@ func (e *ExcelizeExcel) CopySheet(srcSheetName string, destSheetName string) err
 	return nil
 }
 
+// maxFormulaRewriteCells bounds the cell-by-cell formula scan that a rename
+// performs. Excelize looks a formula up by walking the sheet's rows, so the
+// scan is quadratic; past this budget we skip it and warn instead of hanging.
+const maxFormulaRewriteCells = 100000
+
+func (e *ExcelizeExcel) SheetNames() ([]string, error) {
+	return e.file.GetSheetList(), nil
+}
+
+func (e *ExcelizeExcel) RenameSheet(oldSheetName string, newSheetName string) ([]string, error) {
+	oldIndex, err := e.file.GetSheetIndex(oldSheetName)
+	if err != nil || oldIndex < 0 {
+		return nil, fmt.Errorf("sheet not found: %s", oldSheetName)
+	}
+	if oldSheetName == newSheetName {
+		return nil, nil
+	}
+	// GetSheetIndex matches case-insensitively, so an index that is not the
+	// source sheet means a different sheet already owns the target name.
+	if existingIndex, err := e.file.GetSheetIndex(newSheetName); err == nil && existingIndex >= 0 && existingIndex != oldIndex {
+		return nil, fmt.Errorf("a sheet named [%s] already exists", newSheetName)
+	}
+
+	// Collect the formulas to rewrite before renaming, so that a workbook too
+	// large to scan is reported rather than half-migrated.
+	rewrites, warnings, err := e.collectFormulaRewrites(oldSheetName, newSheetName)
+	if err != nil {
+		return nil, err
+	}
+
+	// SetSheetName preserves all cell content, styles, merges, column widths
+	// and row heights; it only edits the sheet's entry in workbook.xml and the
+	// defined names that point at it.
+	if err := e.file.SetSheetName(oldSheetName, newSheetName); err != nil {
+		return nil, err
+	}
+	for _, rewrite := range rewrites {
+		if err := e.file.SetCellFormula(rewrite.sheet, rewrite.cell, rewrite.formula); err != nil {
+			return nil, fmt.Errorf("failed to update formula in %s!%s: %w", rewrite.sheet, rewrite.cell, err)
+		}
+	}
+	return warnings, nil
+}
+
+type formulaRewrite struct {
+	sheet   string
+	cell    string
+	formula string
+}
+
+// collectFormulaRewrites finds every formula in the workbook that references
+// oldSheetName and returns the rewritten version pointing at newSheetName.
+// The sheet names in the returned rewrites are the ones valid *after* the
+// rename, so the caller can apply them directly.
+func (e *ExcelizeExcel) collectFormulaRewrites(oldSheetName string, newSheetName string) ([]formulaRewrite, []string, error) {
+	var rewrites []formulaRewrite
+	var warnings []string
+
+	for _, sheet := range e.file.GetSheetList() {
+		rows, err := e.file.GetRows(sheet)
+		if err != nil {
+			return nil, nil, err
+		}
+		cells := 0
+		for _, row := range rows {
+			cells += len(row)
+		}
+		if cells > maxFormulaRewriteCells {
+			warnings = append(warnings, fmt.Sprintf(
+				"sheet [%s] has %d cells, which exceeds the %d cell scan budget: formulas on it that reference [%s] were NOT updated and may now be broken",
+				sheet, cells, maxFormulaRewriteCells, oldSheetName))
+			continue
+		}
+		// The scanned sheet may itself be the one being renamed.
+		targetSheet := sheet
+		if sheet == oldSheetName {
+			targetSheet = newSheetName
+		}
+		for rowIndex, row := range rows {
+			for colIndex := range row {
+				cell, err := excelize.CoordinatesToCellName(colIndex+1, rowIndex+1)
+				if err != nil {
+					return nil, nil, err
+				}
+				formula, err := e.file.GetCellFormula(sheet, cell)
+				if err != nil || formula == "" {
+					continue
+				}
+				updated, changed := ReplaceSheetNameInFormula(formula, oldSheetName, newSheetName)
+				if !changed {
+					continue
+				}
+				rewrites = append(rewrites, formulaRewrite{sheet: targetSheet, cell: cell, formula: updated})
+			}
+		}
+	}
+	return rewrites, warnings, nil
+}
+
+func (e *ExcelizeExcel) DeleteSheet(sheetName string, force bool) ([]string, error) {
+	index, err := e.file.GetSheetIndex(sheetName)
+	if err != nil || index < 0 {
+		return nil, fmt.Errorf("sheet not found: %s", sheetName)
+	}
+	sheetList := e.file.GetSheetList()
+	if len(sheetList) <= 1 {
+		return nil, fmt.Errorf("cannot delete sheet [%s]: a workbook must keep at least one sheet", sheetName)
+	}
+	// Resolve to the stored casing so later comparisons are exact.
+	sheetName = sheetList[index]
+
+	// Formulas on the surviving sheets would turn into #REF! errors. Excelize
+	// does not detect this, so refuse rather than hand back a broken workbook.
+	var referencing []string
+	for _, sheet := range sheetList {
+		if sheet == sheetName {
+			continue
+		}
+		rows, err := e.file.GetRows(sheet)
+		if err != nil {
+			return nil, err
+		}
+		cells := 0
+		for _, row := range rows {
+			cells += len(row)
+		}
+		if cells > maxFormulaRewriteCells {
+			continue
+		}
+		for rowIndex, row := range rows {
+			for colIndex := range row {
+				cell, err := excelize.CoordinatesToCellName(colIndex+1, rowIndex+1)
+				if err != nil {
+					return nil, err
+				}
+				formula, err := e.file.GetCellFormula(sheet, cell)
+				if err != nil || formula == "" {
+					continue
+				}
+				if FormulaReferencesSheet(formula, sheetName) {
+					referencing = append(referencing, fmt.Sprintf("%s!%s", sheet, cell))
+				}
+			}
+		}
+	}
+	if len(referencing) > 0 && !force {
+		shown := referencing
+		if len(shown) > 10 {
+			shown = shown[:10]
+		}
+		return nil, fmt.Errorf(
+			"refusing to delete sheet [%s]: %d formula cell(s) reference it and would become #REF! errors (%s). Pass force=true to delete anyway",
+			sheetName, len(referencing), strings.Join(shown, ", "))
+	}
+
+	var warnings []string
+	if len(referencing) > 0 {
+		warnings = append(warnings, fmt.Sprintf(
+			"%d formula cell(s) referenced [%s] and are now broken: %s",
+			len(referencing), sheetName, strings.Join(referencing, ", ")))
+	}
+
+	// Excelize drops defined names scoped to the deleted sheet, but leaves
+	// workbook-scoped ones pointing at it. Remove those too.
+	for _, definedName := range e.file.GetDefinedName() {
+		if definedName.Scope != "Workbook" {
+			continue
+		}
+		if !FormulaReferencesSheet(definedName.RefersTo, sheetName) {
+			continue
+		}
+		if err := e.file.DeleteDefinedName(&excelize.DefinedName{
+			Name:  definedName.Name,
+			Scope: definedName.Scope,
+		}); err != nil {
+			return nil, fmt.Errorf("failed to remove defined name [%s] referring to sheet [%s]: %w", definedName.Name, sheetName, err)
+		}
+		warnings = append(warnings, fmt.Sprintf("removed defined name [%s] which referred to the deleted sheet", definedName.Name))
+	}
+
+	if err := e.file.DeleteSheet(sheetName); err != nil {
+		return nil, err
+	}
+	return warnings, nil
+}
+
+func (e *ExcelizeExcel) MoveSheet(sheetName string, index int) error {
+	sheetList := e.file.GetSheetList()
+	currentIndex, err := e.file.GetSheetIndex(sheetName)
+	if err != nil || currentIndex < 0 {
+		return fmt.Errorf("sheet not found: %s", sheetName)
+	}
+	if index < 0 || index >= len(sheetList) {
+		return fmt.Errorf("index %d is out of range: the workbook has %d sheets (valid indexes are 0-%d)", index, len(sheetList), len(sheetList)-1)
+	}
+	if index == currentIndex {
+		return nil
+	}
+
+	// Build the wanted order, then realise it with excelize's "move before"
+	// primitive. Walking backwards keeps the already-placed suffix intact.
+	sheetName = sheetList[currentIndex]
+	desired := make([]string, 0, len(sheetList))
+	for i, name := range sheetList {
+		if i != currentIndex {
+			desired = append(desired, name)
+		}
+	}
+	desired = append(desired[:index], append([]string{sheetName}, desired[index:]...)...)
+
+	for i := len(desired) - 2; i >= 0; i-- {
+		if err := e.file.MoveSheet(desired[i], desired[i+1]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (e *ExcelizeExcel) GetSheets() ([]Worksheet, error) {
 	sheetList := e.file.GetSheetList()
 	worksheets := make([]Worksheet, len(sheetList))
@@ -293,6 +511,34 @@ func (w *ExcelizeWorksheet) SetCellStyle(cell string, style *CellStyle) error {
 	}
 
 	return nil
+}
+
+func (w *ExcelizeWorksheet) GetMergedCells() ([]string, error) {
+	merged, err := w.file.GetMergeCells(w.sheetName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get merged cells: %w", err)
+	}
+	ranges := make([]string, 0, len(merged))
+	for _, m := range merged {
+		ranges = append(ranges, m.GetStartAxis()+":"+m.GetEndAxis())
+	}
+	return ranges, nil
+}
+
+func (w *ExcelizeWorksheet) GetColumnWidths(startCol int, endCol int) (map[string]float64, error) {
+	widths := make(map[string]float64)
+	for col := startCol; col <= endCol; col++ {
+		name, err := excelize.ColumnNumberToName(col)
+		if err != nil {
+			return nil, err
+		}
+		width, err := w.file.GetColWidth(w.sheetName, name)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get width of column %s: %w", name, err)
+		}
+		widths[name] = width
+	}
+	return widths, nil
 }
 
 func convertCellStyleToExcelizeStyle(style *CellStyle) *excelize.Style {

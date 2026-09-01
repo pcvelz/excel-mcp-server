@@ -4,12 +4,15 @@ import (
 	"context"
 	"fmt"
 	"html"
+	"slices"
+	"strings"
 
 	z "github.com/Oudwins/zog"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 	excel "github.com/negokaz/excel-mcp-server/internal/excel"
 	imcp "github.com/negokaz/excel-mcp-server/internal/mcp"
+	"github.com/xuri/excelize/v2"
 )
 
 type ExcelReadSheetArguments struct {
@@ -139,6 +142,34 @@ func readSheet(fileAbsolutePath string, sheetName string, valueRange string, sho
 	result += fmt.Sprintf("<li>backend: %s</li>\n", workbook.GetBackendName())
 	result += fmt.Sprintf("<li>sheet name: %s</li>\n", html.EscapeString(sheetName))
 	result += fmt.Sprintf("<li>read range: %s</li>\n", currentRange)
+	result += fmt.Sprintf("<li>used range: %s</li>\n", usedRange)
+	if showStyle {
+		// Merges and column widths live on the sheet, not on individual cells,
+		// so the styled cell table cannot show them.
+		merged, err := worksheet.GetMergedCells()
+		if err != nil {
+			return nil, err
+		}
+		if len(merged) > 0 {
+			result += fmt.Sprintf("<li>merged cells: %s</li>\n", html.EscapeString(strings.Join(merged, ", ")))
+		}
+		widths, err := worksheet.GetColumnWidths(startCol, endCol)
+		if err != nil {
+			return nil, err
+		}
+		columns := make([]string, 0, len(widths))
+		for column := range widths {
+			columns = append(columns, column)
+		}
+		slices.SortFunc(columns, compareColumnNames)
+		formatted := make([]string, 0, len(columns))
+		for _, column := range columns {
+			formatted = append(formatted, fmt.Sprintf("%s=%g", column, widths[column]))
+		}
+		if len(formatted) > 0 {
+			result += fmt.Sprintf("<li>column widths: %s</li>\n", strings.Join(formatted, ", "))
+		}
+	}
 	result += "</ul>\n"
 	result += "<h2>Notice</h2>\n"
 	if nextRange != "" {
@@ -171,4 +202,11 @@ func validateRangeWithinUsedRange(targetRange, usedRange string) error {
 	}
 
 	return nil
+}
+
+// compareColumnNames orders Excel column names by position (A, B, ..., Z, AA).
+func compareColumnNames(a string, b string) int {
+	aNumber, _ := excelize.ColumnNameToNumber(a)
+	bNumber, _ := excelize.ColumnNameToNumber(b)
+	return aNumber - bNumber
 }
