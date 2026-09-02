@@ -99,9 +99,36 @@ pending.set(2, (message) => {
   }
   clearTimeout(timer);
   cleanup();
+  writeReceipt();
   console.log(`GATE PASSED: ${expected} builds, boots, reports its own version, and writes a workbook`);
   process.exit(0);
 });
+
+// The receipt is what enforce-release-gate.sh checks before letting `npm
+// publish` run. It records the launcher's mtime so that rebuilding after the
+// gate passed invalidates it: a receipt must describe the artefact that would
+// actually be published, not merely one that passed at some point. It lives
+// under .git/ so it is never committed or shipped.
+function writeReceipt() {
+  const receipt = path.join(__dirname, '..', '.git', 'release-gate-pass');
+  try {
+    fs.writeFileSync(
+      receipt,
+      JSON.stringify(
+        {
+          version: expected,
+          launcherMtimeMs: Math.floor(fs.statSync(launcher).mtimeMs),
+          passedAt: new Date().toISOString(),
+        },
+        null,
+        2
+      )
+    );
+  } catch (error) {
+    console.error(`GATE FAILED: passed but could not write the receipt: ${error.message}`);
+    process.exit(1);
+  }
+}
 
 send({
   jsonrpc: '2.0',
