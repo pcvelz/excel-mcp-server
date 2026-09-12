@@ -171,13 +171,60 @@ func readSheet(fileAbsolutePath string, sheetName string, valueRange string, sho
 		}
 		// Conditional formatting and data validation are invisible in the cell
 		// table, so anything editing this sheet would destroy them unknowingly.
-		conditionalFormats, err := worksheet.GetConditionalFormatRanges()
+		// Each rule is listed with the formula it evaluates and the colour it
+		// applies, in the priority order Excel resolves overlaps by, so the
+		// logic can be read off without opening the workbook.
+		conditionalFormats, err := worksheet.GetConditionalFormats()
 		if err != nil {
 			return nil, err
 		}
 		if len(conditionalFormats) > 0 {
-			result += fmt.Sprintf("<li>conditional formatting (%d rule range(s)): %s</li>\n",
-				len(conditionalFormats), html.EscapeString(strings.Join(conditionalFormats, ", ")))
+			descriptions := make([]string, 0, len(conditionalFormats))
+			for _, rule := range conditionalFormats {
+				description := html.EscapeString(rule.Range)
+				if rule.Type == "" {
+					// The OLE backend reports ranges only.
+					descriptions = append(descriptions, description)
+					continue
+				}
+				description += fmt.Sprintf(" type=%s", html.EscapeString(rule.Type))
+				if rule.Operator != "" {
+					description += fmt.Sprintf(" operator=%s", html.EscapeString(rule.Operator))
+				}
+				if len(rule.Formulas) > 0 {
+					description += fmt.Sprintf(" formula=[%s]", html.EscapeString(strings.Join(rule.Formulas, ", ")))
+				}
+				if rule.Text != "" {
+					description += fmt.Sprintf(" text=%s", html.EscapeString(rule.Text))
+				}
+				if rule.Fill != nil {
+					if len(rule.Fill.Color) > 0 {
+						description += fmt.Sprintf(" fill=%s", html.EscapeString(rule.Fill.Color[0]))
+					} else {
+						// The rule clears the fill instead of painting one.
+						description += " fill=none"
+					}
+				}
+				if rule.Font != nil && rule.Font.Color != nil {
+					description += fmt.Sprintf(" font=%s", html.EscapeString(*rule.Font.Color))
+				}
+				if len(rule.Colors) > 0 {
+					description += fmt.Sprintf(" colors=[%s]", html.EscapeString(strings.Join(rule.Colors, ", ")))
+				}
+				if len(rule.Thresholds) > 0 {
+					description += fmt.Sprintf(" thresholds=[%s]", html.EscapeString(strings.Join(rule.Thresholds, ", ")))
+				}
+				if rule.StyleError != "" {
+					description += fmt.Sprintf(" style=UNRESOLVED(%s)", html.EscapeString(rule.StyleError))
+				}
+				description += fmt.Sprintf(" priority=%d", rule.Priority)
+				if rule.StopIfTrue {
+					description += " stopIfTrue"
+				}
+				descriptions = append(descriptions, description)
+			}
+			result += fmt.Sprintf("<li>conditional formatting (%d rule(s), in priority order): %s</li>\n",
+				len(conditionalFormats), strings.Join(descriptions, " | "))
 		}
 		validations, err := worksheet.GetDataValidationRanges()
 		if err != nil {

@@ -19,6 +19,7 @@ This fork ([pcvelz/excel-mcp-server](https://github.com/pcvelz/excel-mcp-server)
 - **New workbooks from scratch** — `excel_write_to_sheet` with `newSheet: true` creates the file when the path does not exist yet
 - **Row management** - `excel_delete_rows` and `excel_insert_rows`, with formulas adjusted the way Excel adjusts them (`#REF!` for references into deleted rows)
 - **Merges, column widths, conditional formatting and data validation in `showStyle` output** — reported alongside the styled cell table
+- **Conditional formatting, read and write** — `showStyle` reports every rule with its formula, its background colour and the priority Excel resolves overlaps by; `excel_conditional_format` writes and clears rules
 
 See the [upstream comparison](https://github.com/negokaz/excel-mcp-server/compare/main...pcvelz:excel-mcp-server:main) for full diff.
 
@@ -267,6 +268,53 @@ Format cells in the Excel sheet with style information
             - `indent`: Indent level (0-250)
         - `numFmt`: Custom number format string
         - `decimalPlaces`: Number of decimal places (0-30)
+
+### `excel_conditional_format`
+
+Set or clear conditional formatting rules on a range — for example, colouring a cell by how its date compares to `TODAY()`.
+
+Reading is covered by `excel_read_sheet` with `showStyle: true`, which lists every rule with its formula, its background colour and its priority.
+
+**Arguments:**
+- `fileAbsolutePath`
+    - Absolute path to the Excel file
+- `sheetName`
+    - Sheet name in the Excel file
+- `range`
+    - Range the rules apply to (e.g., "A1:A11")
+- `operation`
+    - `"set"` to write the given rules, `"clear"` to remove the conditional formatting on the range. Defaults to `"set"`.
+- `rules`
+    - Rules to apply, in evaluation order. Required when `operation` is `"set"`.
+    - Rule object properties:
+        - `type`: `cellIs`, `expression`, `containsText`, `timePeriod`, `top10`, `aboveAverage`, `duplicate`, `unique`, `2_color_scale`, `3_color_scale`, `dataBar`
+        - `operator`: comparison for `cellIs` and text rules (`lessThan`, `lessThanOrEqual`, `greaterThan`, `greaterThanOrEqual`, `equal`, `notEqual`, `between`, `notBetween`, `containsText`, `notContains`, `beginsWith`, `endsWith`)
+        - `formulas`: values or formulas compared against, without a leading `=`. One entry for most operators, two for `between`/`notBetween`, exactly one for an `expression` rule
+        - `text`: the text a `containsText` rule looks for
+        - `stopIfTrue`: stop evaluating later rules on this range once this one matches
+        - `font`: font applied on a match (bold, italic, strike, color)
+        - `fill`: background fill applied on a match (type, pattern, color)
+
+Example — colour a date red once it is in the past, amber within 30 days, and leave it alone otherwise:
+
+```json
+{
+  "fileAbsolutePath": "/path/to/book.xlsx",
+  "sheetName": "Sheet1",
+  "range": "A1:A11",
+  "rules": [
+    {"type": "cellIs", "operator": "lessThanOrEqual", "formulas": ["TODAY()"],
+     "stopIfTrue": true, "fill": {"type": "pattern", "pattern": "solid", "color": ["#FFC7CE"]}},
+    {"type": "cellIs", "operator": "lessThanOrEqual", "formulas": ["TODAY() + 30"],
+     "stopIfTrue": true, "fill": {"type": "pattern", "pattern": "solid", "color": ["#FFEB9C"]}}
+  ]
+}
+```
+
+Notes:
+- Rules are evaluated in the order given; `stopIfTrue` prevents later rules from overriding a match.
+- Setting rules on a range replaces the rules previously written to that same range. Rules on *other* ranges are left untouched.
+- Writing is supported by the cross-platform backend only. On Windows with the workbook open in Excel, the OLE backend refuses rather than risk rewriting formatting it cannot read back.
 
 <h2 id="configuration">Configuration</h2>
 

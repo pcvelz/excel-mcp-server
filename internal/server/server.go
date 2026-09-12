@@ -31,6 +31,7 @@ func New(version string) *ExcelServer {
 	tools.AddExcelDeleteRowsTool(s.server)
 	tools.AddExcelInsertRowsTool(s.server)
 	tools.AddExcelFormatRangeTool(s.server)
+	tools.AddExcelConditionalFormatTool(s.server)
 	return s
 }
 

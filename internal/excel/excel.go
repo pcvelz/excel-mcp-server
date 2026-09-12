@@ -80,6 +80,59 @@ type Worksheet interface {
 	// GetDataValidationRanges returns the ranges that carry data validation
 	// rules on this worksheet.
 	GetDataValidationRanges() ([]string, error)
+	// GetConditionalFormats returns every conditional formatting rule on this
+	// worksheet, ordered by the priority Excel evaluates them in.
+	//
+	// A flat slice rather than a map keyed by range: a worksheet may hold
+	// several <conditionalFormatting> blocks sharing one sqref, which Excel
+	// writes routinely, so keying by range silently drops all but the last.
+	GetConditionalFormats() ([]ConditionalFormatRule, error)
+	// SetConditionalFormat replaces the conditional formatting on rangeRef
+	// with the given rules, which are applied in the order supplied.
+	SetConditionalFormat(rangeRef string, rules []ConditionalFormatRule) error
+	// ClearConditionalFormat removes the conditional formatting on rangeRef.
+	ClearConditionalFormat(rangeRef string) error
+}
+
+// ConditionalFormatRule is one conditional formatting rule, as Excel stores
+// it. The fields mirror a <cfRule> element rather than any excelize type,
+// because the parts that decide what a sheet actually looks like -- priority,
+// stopIfTrue, and the differential style the rule applies -- are not all
+// reachable through excelize's exported API.
+type ConditionalFormatRule struct {
+	// Range is the sqref the owning block applies to, e.g. "A1:A11" or the
+	// multi-area "B2:B9 D2:D9".
+	Range string `yaml:"range"`
+	// Type is the raw OOXML rule type: cellIs, expression, colorScale,
+	// dataBar, iconSet, timePeriod, containsText, top10, aboveAverage, ...
+	Type string `yaml:"type"`
+	// Operator qualifies a cellIs or text rule: lessThanOrEqual, equal,
+	// between, greaterThan, ... Empty for rules that take no operator.
+	Operator string `yaml:"operator,omitempty"`
+	// Formulas holds the <formula> children in document order. A cellIs rule
+	// has one, or two for between/notBetween; an expression rule has the
+	// single custom formula.
+	Formulas []string `yaml:"formulas,omitempty"`
+	// Text is the needle for containsText and its siblings.
+	Text string `yaml:"text,omitempty"`
+	// Priority decides which rule wins where ranges overlap: lower first.
+	Priority int `yaml:"priority"`
+	// StopIfTrue halts evaluation of lower-priority rules once this matches.
+	StopIfTrue bool `yaml:"stopIfTrue,omitempty"`
+	// Font and Fill are the differential style (dxf) applied on a match. Fill
+	// is the background colour, which is what most rules exist for.
+	Font *FontStyle `yaml:"font,omitempty"`
+	Fill *FillStyle `yaml:"fill,omitempty"`
+	// Colors carries the stop colours of a colorScale, or the bar colour of a
+	// dataBar -- gradient colouring keeps its colours here, not in Fill.
+	Colors []string `yaml:"colors,omitempty"`
+	// Thresholds are the colorScale/dataBar/iconSet value objects (cfvo), in
+	// order, rendered as "type" or "type=value" (e.g. "min", "percentile=50").
+	Thresholds []string `yaml:"thresholds,omitempty"`
+	// StyleError explains why the applied style could not be resolved, for a
+	// rule that references a differential style the workbook never defines.
+	// Excel renders such a rule as no formatting at all.
+	StyleError string `yaml:"styleError,omitempty"`
 }
 
 type Table struct {

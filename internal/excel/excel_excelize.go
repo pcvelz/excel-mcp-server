@@ -570,15 +570,17 @@ func (e *ExcelizeExcel) conditionalFormatsReferencing(sheetName string) ([]strin
 		if _, err := e.sheetXMLPath(sheet); errors.Is(err, errNotWorksheet) {
 			continue
 		}
-		formats, err := e.file.GetConditionalFormats(sheet)
+		// Read the blocks rather than calling GetConditionalFormats: that keys
+		// by sqref, so a range carrying more than one block loses all but the
+		// last, and a reference hiding in a dropped rule would go unwarned.
+		blocks, err := e.conditionalFormattingBlocks(sheet)
 		if err != nil {
 			return nil, err
 		}
-		for rangeRef, rules := range formats {
-			for _, rule := range rules {
-				formulas := []string{rule.Criteria, rule.Value, rule.MinValue, rule.MidValue, rule.MaxValue}
-				if slices.ContainsFunc(formulas, func(formula string) bool { return FormulaReferencesSheet(formula, sheetName) }) {
-					sites = append(sites, sheetReferenceSite{Kind: "conditional formatting", Sheet: sheet, Where: rangeRef}.String())
+		for _, block := range blocks {
+			for _, rule := range block.Rules {
+				if slices.ContainsFunc(rule.Formula, func(formula string) bool { return FormulaReferencesSheet(formula, sheetName) }) {
+					sites = append(sites, sheetReferenceSite{Kind: "conditional formatting", Sheet: sheet, Where: block.SQRef}.String())
 					break
 				}
 			}
@@ -1020,6 +1022,295 @@ func (w *ExcelizeWorksheet) GetConditionalFormatRanges() ([]string, error) {
 	}
 	sort.Strings(ranges)
 	return ranges, nil
+}
+
+// cfBlock mirrors a <conditionalFormatting> element. Excel may emit several
+// blocks carrying the same sqref, so these are kept as a list.
+type cfBlock struct {
+	SQRef string   `xml:"sqref,attr"`
+	Rules []cfRule `xml:"cfRule"`
+}
+
+// cfRule mirrors a <cfRule> element. excelize's ConditionalFormatOptions drops
+// priority entirely and folds the operator and the formula into two fields
+// whose meaning flips per rule type, so the raw element is parsed instead.
+type cfRule struct {
+	Type       string   `xml:"type,attr"`
+	Operator   string   `xml:"operator,attr"`
+	Priority   int      `xml:"priority,attr"`
+	StopIfTrue bool     `xml:"stopIfTrue,attr"`
+	DxfID      *int     `xml:"dxfId,attr"`
+	Text       string   `xml:"text,attr"`
+	Formula    []string `xml:"formula"`
+	ColorScale *struct {
+		Cfvo  []cfvo    `xml:"cfvo"`
+		Color []cfColor `xml:"color"`
+	} `xml:"colorScale"`
+	DataBar *struct {
+		Cfvo  []cfvo    `xml:"cfvo"`
+		Color []cfColor `xml:"color"`
+	} `xml:"dataBar"`
+	IconSet *struct {
+		Cfvo []cfvo `xml:"cfvo"`
+	} `xml:"iconSet"`
+}
+
+// cfvo is a conditional format value object: the thresholds a colour scale,
+// data bar or icon set interpolates between.
+type cfvo struct {
+	Type string `xml:"type,attr"`
+	Val  string `xml:"val,attr"`
+}
+
+type cfColor struct {
+	RGB   string `xml:"rgb,attr"`
+	Theme *int   `xml:"theme,attr"`
+	Tint  string `xml:"tint,attr"`
+}
+
+func (c cfvo) String() string {
+	if c.Val == "" {
+		return c.Type
+	}
+	return c.Type + "=" + c.Val
+}
+
+// conditionalFormattingBlocks reads the <conditionalFormatting> elements of a
+// worksheet straight from the package, for the same reason eachSheetCell reads
+// cells that way: the exported excelize API cannot express what is needed
+// here. GetConditionalFormats keys its result by sqref, so duplicate blocks
+// overwrite each other, and it never reports a rule's priority, without which
+// overlapping rules cannot be told apart.
+func (e *ExcelizeExcel) conditionalFormattingBlocks(sheet string) ([]cfBlock, error) {
+	path, err := e.sheetXMLPath(sheet)
+	if err != nil {
+		return nil, err
+	}
+	// Force excelize to parse the sheet into e.file.Sheet; until something
+	// reads a cell, the map holds no entry for it.
+	if _, err := e.file.GetCellValue(sheet, "A1"); err != nil {
+		return nil, err
+	}
+	worksheet, ok := e.file.Sheet.Load(path)
+	if !ok {
+		return nil, fmt.Errorf("worksheet part %s of sheet [%s] is not loaded", path, sheet)
+	}
+	raw, err := xml.Marshal(worksheet)
+	if err != nil {
+		return nil, err
+	}
+	var parsed struct {
+		Blocks []cfBlock `xml:"conditionalFormatting"`
+	}
+	if err := xml.Unmarshal(raw, &parsed); err != nil {
+		return nil, err
+	}
+	return parsed.Blocks, nil
+}
+
+func (w *ExcelizeWorksheet) GetConditionalFormats() ([]ConditionalFormatRule, error) {
+	owner := &ExcelizeExcel{file: w.file}
+	blocks, err := owner.conditionalFormattingBlocks(w.sheetName)
+	if errors.Is(err, errNotWorksheet) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get conditional formats: %w", err)
+	}
+	var rules []ConditionalFormatRule
+	for _, block := range blocks {
+		for _, raw := range block.Rules {
+			rule := ConditionalFormatRule{
+				Range:      block.SQRef,
+				Type:       raw.Type,
+				Operator:   raw.Operator,
+				Formulas:   raw.Formula,
+				Text:       raw.Text,
+				Priority:   raw.Priority,
+				StopIfTrue: raw.StopIfTrue,
+			}
+			// dxfId indexes the differential styles, a table of its own.
+			// GetStyle would index cellXfs instead and return an unrelated
+			// style, or fail once the index runs past it.
+			if raw.DxfID != nil {
+				style, err := w.file.GetConditionalStyle(*raw.DxfID)
+				if err != nil {
+					// The rule points at a differential style the workbook
+					// does not define, so Excel renders it as no formatting
+					// at all. Say so and keep going: one malformed rule must
+					// not make the whole sheet unreadable.
+					rule.StyleError = fmt.Sprintf("dxf %d is not defined in this workbook", *raw.DxfID)
+					rules = append(rules, rule)
+					continue
+				}
+				converted := convertExcelizeStyleToCellStyle(style)
+				rule.Font, rule.Fill = converted.Font, converted.Fill
+				// A dxf of <patternFill patternType="none"> clears the fill
+				// rather than painting one. excelize still reports a colour
+				// for it, black, which reads as "this cell turns black" -- the
+				// opposite of what the rule does. Drop it.
+				if style.Fill.Pattern == 0 && rule.Fill != nil {
+					rule.Fill.Color = nil
+				}
+			}
+			for _, part := range []*struct {
+				Cfvo  []cfvo    `xml:"cfvo"`
+				Color []cfColor `xml:"color"`
+			}{raw.ColorScale, raw.DataBar} {
+				if part == nil {
+					continue
+				}
+				for _, stop := range part.Cfvo {
+					rule.Thresholds = append(rule.Thresholds, stop.String())
+				}
+				for _, color := range part.Color {
+					rule.Colors = append(rule.Colors, owner.resolveCFColor(color))
+				}
+			}
+			if raw.IconSet != nil {
+				for _, stop := range raw.IconSet.Cfvo {
+					rule.Thresholds = append(rule.Thresholds, stop.String())
+				}
+			}
+			rules = append(rules, rule)
+		}
+	}
+	// Excel evaluates by ascending priority, so reporting them in that order
+	// is what makes an overlap readable.
+	sort.SliceStable(rules, func(i, j int) bool { return rules[i].Priority < rules[j].Priority })
+	return rules, nil
+}
+
+// resolveCFColor renders a <color> child of a colour scale or data bar. Theme
+// references are reported as-is: excelize resolves theme and tint to RGB for
+// the dxf styles it parses, but exposes no way to do the same for a colour
+// scale, and inventing a second resolver would risk disagreeing with it.
+func (e *ExcelizeExcel) resolveCFColor(color cfColor) string {
+	if color.RGB != "" {
+		return "#" + strings.TrimPrefix(strings.ToUpper(color.RGB), "FF")
+	}
+	if color.Theme != nil {
+		if color.Tint != "" {
+			return fmt.Sprintf("theme=%d tint=%s", *color.Theme, color.Tint)
+		}
+		return fmt.Sprintf("theme=%d", *color.Theme)
+	}
+	return ""
+}
+
+// conditionalCriteria maps the operators Excel stores to the spellings
+// excelize's SetConditionalFormat accepts. The two vocabularies differ, and
+// handing excelize an unmapped operator makes it write a rule with an empty
+// operator attribute, which Excel then ignores.
+var conditionalCriteria = map[string]string{
+	"lessThan":           "<",
+	"lessThanOrEqual":    "<=",
+	"greaterThan":        ">",
+	"greaterThanOrEqual": ">=",
+	"equal":              "==",
+	"notEqual":           "!=",
+	"between":            "between",
+	"notBetween":         "not between",
+	"containsText":       "containsText",
+	"notContains":        "notContains",
+	"beginsWith":         "beginsWith",
+	"endsWith":           "endsWith",
+}
+
+// conditionalRuleTypes maps our rule types onto excelize's. Reading reports
+// the raw OOXML type, so writing accepts that spelling too rather than making
+// a caller translate what a read just handed them.
+var conditionalRuleTypes = map[string]string{
+	"cellIs":        "cell",
+	"cell":          "cell",
+	"expression":    "formula",
+	"formula":       "formula",
+	"containsText":  "text",
+	"text":          "text",
+	"timePeriod":    "time_period",
+	"time_period":   "time_period",
+	"top10":         "top",
+	"top":           "top",
+	"aboveAverage":  "average",
+	"average":       "average",
+	"duplicate":     "duplicate",
+	"unique":        "unique",
+	"2_color_scale": "2_color_scale",
+	"3_color_scale": "3_color_scale",
+	"colorScale":    "2_color_scale",
+	"dataBar":       "data_bar",
+	"data_bar":      "data_bar",
+}
+
+func (w *ExcelizeWorksheet) SetConditionalFormat(rangeRef string, rules []ConditionalFormatRule) error {
+	options := make([]excelize.ConditionalFormatOptions, 0, len(rules))
+	for i, rule := range rules {
+		ruleType, ok := conditionalRuleTypes[rule.Type]
+		if !ok {
+			return fmt.Errorf("rule %d: unsupported conditional format type %q", i+1, rule.Type)
+		}
+		option := excelize.ConditionalFormatOptions{
+			Type:       ruleType,
+			StopIfTrue: rule.StopIfTrue,
+		}
+		switch ruleType {
+		case "formula":
+			if len(rule.Formulas) != 1 {
+				return fmt.Errorf("rule %d: a formula rule needs exactly one formula, got %d", i+1, len(rule.Formulas))
+			}
+			option.Criteria = rule.Formulas[0]
+		case "cell":
+			criteria, ok := conditionalCriteria[rule.Operator]
+			if !ok {
+				return fmt.Errorf("rule %d: unsupported operator %q", i+1, rule.Operator)
+			}
+			option.Criteria = criteria
+			if criteria == "between" || criteria == "not between" {
+				if len(rule.Formulas) != 2 {
+					return fmt.Errorf("rule %d: %s needs two formulas, got %d", i+1, rule.Operator, len(rule.Formulas))
+				}
+				option.MinValue, option.MaxValue = rule.Formulas[0], rule.Formulas[1]
+			} else {
+				if len(rule.Formulas) != 1 {
+					return fmt.Errorf("rule %d: %s needs one formula, got %d", i+1, rule.Operator, len(rule.Formulas))
+				}
+				option.Value = rule.Formulas[0]
+			}
+		case "text":
+			option.Criteria = rule.Operator
+			option.Value = rule.Text
+		default:
+			if len(rule.Formulas) == 1 {
+				option.Value = rule.Formulas[0]
+			}
+			option.Criteria = rule.Operator
+		}
+		// The style has to go into the differential styles: a cfRule's dxfId
+		// indexes that table, and an index from NewStyle would point into
+		// cellXfs, leaving Excel with a rule it renders as nothing.
+		if rule.Font != nil || rule.Fill != nil {
+			styleID, err := w.file.NewConditionalStyle(convertCellStyleToExcelizeStyle(&CellStyle{
+				Font: rule.Font,
+				Fill: rule.Fill,
+			}))
+			if err != nil {
+				return fmt.Errorf("rule %d: failed to create the conditional style: %w", i+1, err)
+			}
+			option.Format = &styleID
+		}
+		options = append(options, option)
+	}
+	if err := w.file.SetConditionalFormat(w.sheetName, rangeRef, options); err != nil {
+		return fmt.Errorf("failed to set conditional format on %s: %w", rangeRef, err)
+	}
+	return nil
+}
+
+func (w *ExcelizeWorksheet) ClearConditionalFormat(rangeRef string) error {
+	if err := w.file.UnsetConditionalFormat(w.sheetName, rangeRef); err != nil {
+		return fmt.Errorf("failed to clear conditional format on %s: %w", rangeRef, err)
+	}
+	return nil
 }
 
 func (w *ExcelizeWorksheet) GetDataValidationRanges() ([]string, error) {

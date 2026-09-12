@@ -666,6 +666,36 @@ func (o *OleWorksheet) GetDataValidationRanges() ([]string, error) {
 	return strings.Split(address, ","), nil
 }
 
+// GetConditionalFormats reports which ranges carry rules, and nothing more.
+// Reading a rule's formula and its applied style through OLE means walking
+// FormatConditions and its per-type Interior/Font objects, which is not
+// implemented here. Reporting the ranges still tells a caller that editing
+// this sheet would disturb formatting it cannot see, which is what the
+// metadata block exists for.
+func (o *OleWorksheet) GetConditionalFormats() ([]ConditionalFormatRule, error) {
+	ranges, err := o.GetConditionalFormatRanges()
+	if err != nil {
+		return nil, err
+	}
+	rules := make([]ConditionalFormatRule, 0, len(ranges))
+	for _, rangeRef := range ranges {
+		rules = append(rules, ConditionalFormatRule{Range: rangeRef})
+	}
+	return rules, nil
+}
+
+// SetConditionalFormat is not implemented for the OLE backend. Adding a rule
+// through FormatConditions means driving a different API per rule type, and
+// getting it wrong would silently rewrite formatting in a workbook the user
+// has open in Excel. Refusing is the safe answer until it is built.
+func (o *OleWorksheet) SetConditionalFormat(rangeRef string, rules []ConditionalFormatRule) error {
+	return fmt.Errorf("writing conditional formatting is not supported by the OLE backend; close the workbook in Excel so the file can be edited directly")
+}
+
+func (o *OleWorksheet) ClearConditionalFormat(rangeRef string) error {
+	return fmt.Errorf("clearing conditional formatting is not supported by the OLE backend; close the workbook in Excel so the file can be edited directly")
+}
+
 func (o *OleWorksheet) GetPagingStrategy(pageSize int) (PagingStrategy, error) {
 	return NewOlePagingStrategy(1000, o)
 }

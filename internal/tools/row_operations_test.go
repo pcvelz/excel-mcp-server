@@ -483,7 +483,14 @@ func TestReadSheetReportsRules(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	styleID, err := file.NewStyle(&excelize.Style{Font: &excelize.Font{Color: "FF0000"}})
+	// NewConditionalStyle, not NewStyle: a cfRule's dxfId indexes the
+	// differential styles. An index from NewStyle points into cellXfs and
+	// leaves the workbook with <dxfs count="0"> under a rule claiming dxfId=1,
+	// which Excel renders as no formatting at all.
+	styleID, err := file.NewConditionalStyle(&excelize.Style{
+		Font: &excelize.Font{Color: "FF0000"},
+		Fill: excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{"FFC7CE"}},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -509,8 +516,18 @@ func TestReadSheetReportsRules(t *testing.T) {
 	file.Close()
 
 	output := ok(readSheet(path, sheet, "A1:A5", false, true))
-	if !strings.Contains(output, "conditional formatting (1 rule range(s)): A1:A5") {
+	if !strings.Contains(output, "conditional formatting (1 rule(s), in priority order)") {
 		t.Errorf("expected conditional formatting to be reported, got: %s", output)
+	}
+	// The colour is the whole point of the rule, so assert it rather than just
+	// the rule's existence.
+	for _, want := range []string{"A1:A5 type=cellIs", "operator=greaterThan", "formula=[2]", "fill=#FFC7CE", "font=#FF0000", "priority=1"} {
+		if !strings.Contains(output, want) {
+			t.Errorf("expected %q in the conditional formatting report, got: %s", want, output)
+		}
+	}
+	if strings.Contains(output, "UNRESOLVED") {
+		t.Errorf("the fixture's differential style should resolve, got: %s", output)
 	}
 	if !strings.Contains(output, "data validation (1 rule range(s)): A1:A5") {
 		t.Errorf("expected data validation to be reported, got: %s", output)
